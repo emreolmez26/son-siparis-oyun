@@ -1,1 +1,8 @@
-enum CardZone { hand, kitchenTable, ingredientStack, processing, consumed }
+enum CardZone {
+  hand,
+  kitchenTable,
+  ingredientStack,
+  processing,
+  consumed,
+  served,
+}

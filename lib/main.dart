@@ -16,7 +16,11 @@ Future<void> main() async {
 }
 
 class SonSiparisApp extends StatelessWidget {
-  const SonSiparisApp({super.key});
+  const SonSiparisApp({super.key, this.game});
+
+  /// An optional game instance keeps the production shell testable without
+  /// changing its normal one-game-per-app behavior.
+  final SonSiparisGame? game;
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +28,7 @@ class SonSiparisApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       home: Scaffold(
         backgroundColor: const Color(0xFF1B120E),
-        body: SafeArea(child: GameWidget(game: SonSiparisGame())),
+        body: SafeArea(child: GameWidget(game: game ?? SonSiparisGame())),
       ),
     );
   }

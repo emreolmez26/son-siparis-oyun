@@ -17,14 +17,21 @@ abstract final class GameLayout {
   static const double handTop = 600;
   static const double handHeight = 96;
 
-  static const double cardWidth = 112;
-  static const double cardHeight = 84;
+  static const double cardWidth = 104;
+  static const double cardHeight = 78;
   static const double handCardTop = handTop + ((handHeight - cardHeight) / 2);
   static const Map<String, Offset> initialHandCardPositions = {
-    'bread_01': Offset(362, handCardTop),
-    'patty_01': Offset(510, handCardTop),
-    'cheese_01': Offset(658, handCardTop),
-    'pan_01': Offset(806, handCardTop),
+    'bread_01': Offset(304, handCardTop),
+    'patty_01': Offset(418, handCardTop),
+    'cheese_01': Offset(532, handCardTop),
+    'tomato_01': Offset(646, handCardTop),
+    'hot_sauce_01': Offset(760, handCardTop),
+    'potato_01': Offset(874, handCardTop),
+  };
+  static const Map<String, Offset> initialEquipmentTablePositions = {
+    'pan_01': Offset(740, 240),
+    'knife_01': Offset(740, 352),
+    'fryer_01': Offset(1000, 296),
   };
   static const double kitchenGridSpacing = 32;
   static const double kitchenGridPadding = 16;
@@ -36,8 +43,16 @@ abstract final class GameLayout {
   );
   static const Size cardSize = Size(cardWidth, cardHeight);
   static const double processingDurationSeconds = 3;
+  static const double knifeProcessingDurationSeconds = 1.5;
+  static const double fryerProcessingDurationSeconds = 2.5;
   static const double recipeFeedbackDurationSeconds = .7;
   static const double resultCardPopDurationSeconds = .65;
+  static const double shiftDurationSeconds = 90;
+  static const double customerPatienceDurationSeconds = 22;
+  static const double serviceFeedbackDurationSeconds = .8;
+  static const double failureFeedbackDurationSeconds = .8;
+  static const int initialWalletCoins = 120;
+  static const int successfulServiceRewardCoins = 10;
   static const Offset processingPattyOffset = Offset(8, -14);
   static const double processingOutputHorizontalOffset =
       cardWidth + kitchenGridSpacing;
@@ -47,6 +62,13 @@ abstract final class GameLayout {
     tableTop,
     designWidth - (horizontalPadding * 2),
     tableHeight,
+  );
+
+  static const Rect serviceCounterBounds = Rect.fromLTWH(
+    (designWidth - serviceWidth) / 2,
+    serviceTop,
+    serviceWidth,
+    serviceHeight,
   );
 
   static const Color backgroundColor = Color(0xFF1B120E);

@@ -1,6 +1,6 @@
 import 'dart:ui';
 
-import '../models/card_definition.dart';
+import '../models/processing_definition.dart';
 import '../state/equipment_processing_state.dart';
 import '../state/kitchen_table_state.dart';
 
@@ -9,11 +9,13 @@ class EquipmentTarget {
     required this.equipmentCardId,
     required this.bounds,
     required this.isAvailable,
+    required this.processingDefinition,
   });
 
   final String equipmentCardId;
   final Rect bounds;
   final bool isAvailable;
+  final ProcessingDefinition processingDefinition;
 }
 
 class EquipmentTargetResolver {
@@ -21,24 +23,27 @@ class EquipmentTargetResolver {
 
   final Size cardSize;
 
-  EquipmentTarget? resolvePattyTarget({
+  EquipmentTarget? resolveTarget({
     required String draggedCardId,
     required Offset draggedCardPosition,
     required KitchenTableState tableState,
     required EquipmentProcessingState processingState,
   }) {
-    if (tableState.definitionFor(draggedCardId).type != CardType.patty) {
-      return null;
-    }
-
     final draggedCenter = Offset(
       draggedCardPosition.dx + (cardSize.width / 2),
       draggedCardPosition.dy + (cardSize.height / 2),
     );
     EquipmentTarget? target;
     for (final equipmentCardId in tableState.tableCardIdsInRenderOrder) {
-      if (!tableState.isOnKitchenTable(equipmentCardId) ||
-          tableState.definitionFor(equipmentCardId).type != CardType.pan) {
+      if (!tableState.isOnKitchenTable(equipmentCardId)) {
+        continue;
+      }
+      final processingDefinition = processingState.definitionFor(
+        tableState: tableState,
+        equipmentCardId: equipmentCardId,
+        inputCardId: draggedCardId,
+      );
+      if (processingDefinition == null) {
         continue;
       }
       final equipmentPosition = tableState
@@ -55,9 +60,23 @@ class EquipmentTargetResolver {
           equipmentCardId: equipmentCardId,
           bounds: bounds,
           isAvailable: processingState.isEquipmentAvailable(equipmentCardId),
+          processingDefinition: processingDefinition,
         );
       }
     }
     return target;
   }
+
+  /// Compatibility entry point for the original patty-on-pan prototype.
+  EquipmentTarget? resolvePattyTarget({
+    required String draggedCardId,
+    required Offset draggedCardPosition,
+    required KitchenTableState tableState,
+    required EquipmentProcessingState processingState,
+  }) => resolveTarget(
+    draggedCardId: draggedCardId,
+    draggedCardPosition: draggedCardPosition,
+    tableState: tableState,
+    processingState: processingState,
+  );
 }

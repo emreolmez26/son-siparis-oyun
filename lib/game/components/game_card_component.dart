@@ -26,6 +26,7 @@ class GameCardComponent extends PositionComponent with DragCallbacks {
   CardDefinition definition;
   int restingPriority;
   bool isLocked = false;
+  bool isInteractionLocked = false;
   bool isProcessing = false;
   bool _hasAcceptedDrag = false;
   double _resultPopRemaining = 0;
@@ -51,9 +52,11 @@ class GameCardComponent extends PositionComponent with DragCallbacks {
     fontWeight: FontWeight.w900,
   );
 
+  bool get displaysBusyState => isLocked || isProcessing;
+
   @override
   void onDragStart(DragStartEvent event) {
-    if (isLocked) {
+    if (isLocked || isInteractionLocked) {
       return;
     }
     super.onDragStart(event);
@@ -88,16 +91,23 @@ class GameCardComponent extends PositionComponent with DragCallbacks {
     required int priority,
     required CardDefinition definition,
     required bool isLocked,
+    required bool isInteractionLocked,
     required bool isProcessing,
   }) {
-    position.setFrom(cardPosition);
     restingPriority = priority;
     this.definition = definition;
     this.isLocked = isLocked;
+    this.isInteractionLocked = isInteractionLocked;
     this.isProcessing = isProcessing;
     if (!isDragged) {
+      position.setFrom(cardPosition);
       this.priority = priority;
     }
+  }
+
+  void cancelActiveDrag() {
+    _hasAcceptedDrag = false;
+    priority = restingPriority;
   }
 
   void triggerResultPop() {
@@ -252,10 +262,35 @@ class GameCardComponent extends PositionComponent with DragCallbacks {
       case CardType.cheese:
         _drawCheesePlaceholder(canvas);
         break;
+      case CardType.tomato:
+      case CardType.slicedTomato:
+        _drawTomatoPlaceholder(
+          canvas,
+          sliced: definition.type == CardType.slicedTomato,
+        );
+        break;
+      case CardType.hotSauce:
+        _drawSaucePlaceholder(canvas);
+        break;
+      case CardType.potato:
+      case CardType.crispyFries:
+        _drawPotatoPlaceholder(
+          canvas,
+          crispy: definition.type == CardType.crispyFries,
+        );
+        break;
       case CardType.pan:
         _drawPanPlaceholder(canvas);
         break;
+      case CardType.knife:
+        _drawKnifePlaceholder(canvas);
+        break;
+      case CardType.fryer:
+        _drawFryerPlaceholder(canvas);
+        break;
       case CardType.classicBurger:
+      case CardType.deluxeBurger:
+      case CardType.spicyBurger:
         _drawBurgerPlaceholder(canvas);
         break;
     }
@@ -358,6 +393,80 @@ class GameCardComponent extends PositionComponent with DragCallbacks {
         const Radius.circular(4),
       ),
       Paint()..color = const Color(0xFF54778D),
+    );
+  }
+
+  void _drawTomatoPlaceholder(Canvas canvas, {required bool sliced}) {
+    final center = Offset(size.x / 2, 29);
+    canvas.drawCircle(center, 17, Paint()..color = const Color(0xFFD95845));
+    canvas.drawCircle(center, 11, Paint()..color = const Color(0xFFF18263));
+    if (sliced) {
+      canvas.drawLine(
+        Offset(center.dx - 14, center.dy),
+        Offset(center.dx + 14, center.dy),
+        Paint()
+          ..color = const Color(0xFFFFD2A6)
+          ..strokeWidth = 2,
+      );
+    }
+  }
+
+  void _drawSaucePlaceholder(Canvas canvas) {
+    final bottle = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(size.x / 2, 30), width: 22, height: 35),
+      const Radius.circular(6),
+    );
+    canvas.drawRRect(bottle, Paint()..color = const Color(0xFFCF4B37));
+    canvas.drawRect(
+      Rect.fromCenter(center: Offset(size.x / 2, 10), width: 10, height: 5),
+      Paint()..color = const Color(0xFF573022),
+    );
+  }
+
+  void _drawPotatoPlaceholder(Canvas canvas, {required bool crispy}) {
+    final paint = Paint()
+      ..color = crispy ? const Color(0xFFF1B52C) : const Color(0xFFD7B16E);
+    for (final offset in const [Offset(-14, 2), Offset(-4, -3), Offset(7, 2)]) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(
+            center: Offset(size.x / 2 + offset.dx, 29 + offset.dy),
+            width: 8,
+            height: 28,
+          ),
+          const Radius.circular(4),
+        ),
+        paint,
+      );
+    }
+  }
+
+  void _drawKnifePlaceholder(Canvas canvas) {
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.x / 2 - 24, 26, 42, 7),
+        const Radius.circular(4),
+      ),
+      Paint()..color = const Color(0xFFB9C5CB),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.x / 2 + 15, 25, 16, 9),
+        const Radius.circular(4),
+      ),
+      Paint()..color = const Color(0xFF516673),
+    );
+  }
+
+  void _drawFryerPlaceholder(Canvas canvas) {
+    final body = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(size.x / 2, 31), width: 44, height: 27),
+      const Radius.circular(6),
+    );
+    canvas.drawRRect(body, Paint()..color = const Color(0xFF668394));
+    canvas.drawRect(
+      Rect.fromCenter(center: Offset(size.x / 2, 23), width: 30, height: 7),
+      Paint()..color = const Color(0xFF233D4A),
     );
   }
 

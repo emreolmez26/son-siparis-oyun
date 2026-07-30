@@ -1,4 +1,4 @@
-enum ProcessingAction { cookPatty }
+enum ProcessingAction { cookPatty, sliceTomato, fryPotato }
 
 enum ProcessingStatus { active, completed }
 
