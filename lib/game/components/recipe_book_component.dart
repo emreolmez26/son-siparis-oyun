@@ -4,8 +4,12 @@ import 'package:flutter/material.dart';
 
 import '../game_layout.dart';
 import '../models/recipe_book_entry.dart';
+import '../models/content_ownership.dart';
+import '../models/game_mode.dart';
 import '../state/recipe_discovery_state.dart';
+import '../state/loadout_state.dart';
 import '../state/run_progression_state.dart';
+import '../systems/loadout_recipe_resolver.dart';
 import 'shell_canvas.dart';
 
 class RecipeBookComponent extends PositionComponent with TapCallbacks {
@@ -13,6 +17,9 @@ class RecipeBookComponent extends PositionComponent with TapCallbacks {
     required this.entries,
     required this.discoveryState,
     required this.progression,
+    required this.ownership,
+    required this.loadoutState,
+    required this.modeProvider,
     required this.isShowing,
     required this.onClose,
   }) : super(
@@ -23,6 +30,9 @@ class RecipeBookComponent extends PositionComponent with TapCallbacks {
   final List<RecipeBookEntry> entries;
   final RecipeDiscoveryState discoveryState;
   final RunProgressionState progression;
+  final ContentOwnership ownership;
+  final LoadoutState loadoutState;
+  final GameMode Function() modeProvider;
   final bool Function() isShowing;
   final void Function() onClose;
 
@@ -45,8 +55,28 @@ class RecipeBookComponent extends PositionComponent with TapCallbacks {
     return null;
   }
 
+  bool _isDailyVisible(RecipeBookEntry entry) =>
+      modeProvider() == GameMode.dailyChallenge && !entry.isPlaceholder;
+
+  bool _isMarketLocked(RecipeBookEntry entry) =>
+      !entry.isPlaceholder &&
+      !_isDailyVisible(entry) &&
+      !ownership.ownsRecipe(entry.id);
+
   bool _isDiscovered(RecipeBookEntry entry) =>
-      !entry.isPlaceholder && discoveryState.isDiscovered(entry.id);
+      !entry.isPlaceholder &&
+      (_isDailyVisible(entry) ||
+          (ownership.ownsRecipe(entry.id) &&
+              discoveryState.isDiscovered(entry.id)));
+
+  bool _isSupported(RecipeBookEntry entry) =>
+      _isDailyVisible(entry) ||
+      const LoadoutRecipeResolver()
+          .supportedRecipeIds(
+            loadout: loadoutState.active,
+            unlockedRecipeIds: ownership.unlockedRecipeIds,
+          )
+          .contains(entry.id);
 
   Rect _categoryBounds(int index) => Rect.fromLTWH(
     _sidebarBounds.left + 16,
@@ -141,7 +171,9 @@ class RecipeBookComponent extends PositionComponent with TapCallbacks {
     );
     ShellCanvas.label(
       canvas,
-      text: '${discoveryState.discoveredRecipeIds.length}/4 tarif keşfedildi',
+      text: modeProvider() == GameMode.dailyChallenge
+          ? '4/4 tarif bu mücadelede açık'
+          : '${discoveryState.discoveredRecipeIds.length}/4 tarif keşfedildi',
       position: Vector2(_sidebarBounds.left + 18, _sidebarBounds.top + 50),
       style: const TextStyle(
         color: GameLayout.successColor,
@@ -215,6 +247,7 @@ class RecipeBookComponent extends PositionComponent with TapCallbacks {
   void _drawRecipeCard(Canvas canvas, int index, RecipeBookEntry entry) {
     final bounds = _entryBounds(index);
     final discovered = _isDiscovered(entry);
+    final marketLocked = _isMarketLocked(entry);
     final selected = entry.id == _selectedEntryId;
     ShellCanvas.panel(
       canvas,
@@ -249,7 +282,11 @@ class RecipeBookComponent extends PositionComponent with TapCallbacks {
     );
     ShellCanvas.label(
       canvas,
-      text: discovered ? entry.displayName : 'Keşfedilmedi',
+      text: discovered
+          ? entry.displayName
+          : marketLocked
+          ? 'Market Kilidi'
+          : 'Keşfedilmedi',
       position: Vector2(bounds.center.dx, bounds.top + 102),
       style: TextStyle(
         color: discovered
@@ -263,7 +300,11 @@ class RecipeBookComponent extends PositionComponent with TapCallbacks {
     );
     ShellCanvas.label(
       canvas,
-      text: discovered ? 'KEŞFEDİLDİ' : 'KİLİTLİ',
+      text: discovered
+          ? (_isSupported(entry) ? 'HAZIR' : 'AKTİF MUTFAKTA DEĞİL')
+          : marketLocked
+          ? 'MARKETTEN AÇILIR'
+          : 'KİLİTLİ',
       position: Vector2(bounds.center.dx, bounds.top + 128),
       style: TextStyle(
         color: discovered ? const Color(0xFF4F8700) : const Color(0xFFE9D5CA),
@@ -309,9 +350,10 @@ class RecipeBookComponent extends PositionComponent with TapCallbacks {
     );
     final entry = _selectedEntry;
     if (entry == null || !_isDiscovered(entry)) {
+      final marketLocked = entry != null && _isMarketLocked(entry);
       ShellCanvas.label(
         canvas,
-        text: 'KEŞFEDİLMEDİ',
+        text: marketLocked ? 'MARKETTEN AÇILIR' : 'KEŞFEDİLMEDİ',
         position: Vector2(_detailBounds.center.dx, _detailBounds.top + 128),
         style: const TextStyle(
           color: GameLayout.primaryTextColor,
@@ -322,7 +364,9 @@ class RecipeBookComponent extends PositionComponent with TapCallbacks {
       );
       ShellCanvas.label(
         canvas,
-        text: 'Bu tarifin malzemeleri henüz gizli.',
+        text: marketLocked
+            ? 'Bu içerik kalıcı olarak Market paketinden açılır.'
+            : 'Bu tarifin malzemeleri henüz gizli.',
         position: Vector2(_detailBounds.center.dx, _detailBounds.top + 168),
         style: const TextStyle(color: GameLayout.mutedTextColor, fontSize: 12),
         align: TextAlign.center,
@@ -340,6 +384,19 @@ class RecipeBookComponent extends PositionComponent with TapCallbacks {
       ),
       align: TextAlign.center,
     );
+    if (!_isSupported(entry)) {
+      ShellCanvas.label(
+        canvas,
+        text: 'AKTİF MUTFAKTA DEĞİL',
+        position: Vector2(_detailBounds.center.dx, _detailBounds.top + 66),
+        style: const TextStyle(
+          color: Color(0xFFFFB18D),
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
+        ),
+        align: TextAlign.center,
+      );
+    }
     ShellCanvas.label(
       canvas,
       text: 'HAZIRLIK SIRASI',
@@ -406,7 +463,9 @@ class RecipeBookComponent extends PositionComponent with TapCallbacks {
     }
     final definition = entry.resultDefinition!;
     final baseReward = definition.baseRewardCoins;
-    final effectiveReward = progression.upgrades.effectiveRewardFor(definition);
+    final effectiveReward = modeProvider() == GameMode.dailyChallenge
+        ? baseReward
+        : progression.upgrades.effectiveRewardFor(definition);
     final bonus = effectiveReward - baseReward;
     final rewardBounds = Rect.fromLTWH(
       _detailBounds.left + 26,

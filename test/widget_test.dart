@@ -1388,7 +1388,7 @@ void main() {
   test('recipe discovery begins known and persists newly created recipes', () {
     final discovery = RecipeDiscoveryState();
     expect(discovery.isDiscovered('classic_burger'), isTrue);
-    expect(discovery.isDiscovered('crispy_fries'), isTrue);
+    expect(discovery.isDiscovered('crispy_fries'), isFalse);
     expect(discovery.isDiscovered('deluxe_burger'), isFalse);
     expect(discovery.discover('deluxe_burger'), isTrue);
     expect(discovery.discover('spicy_burger'), isTrue);

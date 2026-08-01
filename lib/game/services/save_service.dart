@@ -47,11 +47,15 @@ class SaveService {
       if (decoded is! Map<String, dynamic>) {
         return _recoverDefaults();
       }
-      return SaveData.fromJson(
+      final data = SaveData.fromJson(
         decoded,
         knownUpgradeIds: knownUpgradeIds,
         knownRecipeIds: knownRecipeIds,
       );
+      if (decoded['schemaVersion'] == null || decoded['schemaVersion'] == 1) {
+        await saveChecked(data);
+      }
+      return data;
     } catch (error) {
       debugPrint('Save recovery: using safe defaults (${error.runtimeType}).');
       return _recoverDefaults();
@@ -77,6 +81,20 @@ class SaveService {
       }
     });
     return _pendingWrite;
+  }
+
+  Future<bool> saveChecked(SaveData data) async {
+    var succeeded = false;
+    _pendingWrite = _pendingWrite.then((_) async {
+      try {
+        await _store.write(jsonEncode(data.toJson()));
+        succeeded = true;
+      } catch (error) {
+        debugPrint('Save write skipped safely (${error.runtimeType}).');
+      }
+    });
+    await _pendingWrite;
+    return succeeded;
   }
 
   Future<void> reset() async {

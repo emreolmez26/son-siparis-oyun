@@ -13,6 +13,11 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
     required this.onContinue,
     required this.onOpenRecipeBook,
     required this.onOpenSettings,
+    required this.onOpenMarket,
+    required this.onOpenLoadout,
+    required this.onStartDailyChallenge,
+    required this.ownedPackCount,
+    required this.todayBestLabel,
     required this.canContinue,
     required this.progression,
   }) : super(
@@ -25,6 +30,11 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
   final void Function() onContinue;
   final void Function() onOpenRecipeBook;
   final void Function() onOpenSettings;
+  final void Function() onOpenMarket;
+  final void Function() onOpenLoadout;
+  final void Function() onStartDailyChallenge;
+  final int Function() ownedPackCount;
+  final String Function() todayBestLabel;
   final bool Function() canContinue;
   final RunProgressionState progression;
 
@@ -34,7 +44,10 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
     height: 58,
   );
   static const _recipeBookBounds = Rect.fromLTWH(496, 626, 86, 48);
+  static const _marketBounds = Rect.fromLTWH(596, 626, 86, 48);
   static const _settingsBounds = Rect.fromLTWH(696, 626, 86, 48);
+  static const _loadoutBounds = Rect.fromLTWH(796, 626, 108, 48);
+  static const _dailyBounds = Rect.fromLTWH(248, 548, 206, 66);
   static final _continueBounds = Rect.fromCenter(
     center: const Offset(640, 574),
     width: 292,
@@ -78,6 +91,13 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
       const Rect.fromLTWH(1048, 28, 188, 38),
       '● ${progression.walletCoins}  PARA',
     );
+    ShellCanvas.label(
+      canvas,
+      text: '${ownedPackCount()}/3 PAKET · GÜNLÜK: ${todayBestLabel()}',
+      position: Vector2(640, 174),
+      style: const TextStyle(color: GameLayout.mutedTextColor, fontSize: 10),
+      align: TextAlign.center,
+    );
     _drawDecorativeCards(canvas);
     ShellCanvas.panel(
       canvas,
@@ -86,6 +106,25 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
       borderColor: const Color(0xFFFFD86F),
       radius: 14,
       borderWidth: 2,
+    );
+    ShellCanvas.panel(
+      canvas,
+      _dailyBounds,
+      color: const Color(0xFF493126),
+      borderColor: GameLayout.accentColor,
+      radius: 11,
+      borderWidth: 2,
+    );
+    ShellCanvas.label(
+      canvas,
+      text: 'GÜNÜN MÜCADELESİ',
+      position: Vector2(_dailyBounds.center.dx, _dailyBounds.top + 24),
+      style: const TextStyle(
+        color: GameLayout.primaryTextColor,
+        fontSize: 10,
+        fontWeight: FontWeight.w900,
+      ),
+      align: TextAlign.center,
     );
     ShellCanvas.label(
       canvas,
@@ -108,7 +147,7 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
     ShellCanvas.label(
       canvas,
       text: canContinue() ? 'DEVAM ET' : 'DEVAM ET  ·  Kayıt yok',
-      position: Vector2(640, 587),
+      position: Vector2(640, _continueBounds.top + 12),
       style: const TextStyle(
         color: GameLayout.mutedTextColor,
         fontSize: 13,
@@ -116,9 +155,11 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
       ),
       align: TextAlign.center,
     );
-    const labels = ['TARİF DEFTERİ', 'KOLEKSİYON', 'AYARLAR'];
+    const labels = ['TARİF DEFTERİ', 'MARKET', 'AYARLAR', 'AKTİF MUTFAK'];
     for (var index = 0; index < labels.length; index++) {
-      final bounds = Rect.fromLTWH(496 + (index * 100), 626, 86, 48);
+      final bounds = index == 3
+          ? _loadoutBounds
+          : Rect.fromLTWH(496 + (index * 100), 626, 86, 48);
       ShellCanvas.panel(
         canvas,
         bounds,
@@ -224,10 +265,24 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
       return;
     }
     if (isShowing() &&
+        _dailyBounds.contains(
+          Offset(event.localPosition.x, event.localPosition.y),
+        )) {
+      onStartDailyChallenge();
+      return;
+    }
+    if (isShowing() &&
         _recipeBookBounds.contains(
           Offset(event.localPosition.x, event.localPosition.y),
         )) {
       onOpenRecipeBook();
+      return;
+    }
+    if (isShowing() &&
+        _marketBounds.contains(
+          Offset(event.localPosition.x, event.localPosition.y),
+        )) {
+      onOpenMarket();
       return;
     }
     if (isShowing() &&
@@ -243,6 +298,13 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
           Offset(event.localPosition.x, event.localPosition.y),
         )) {
       onOpenSettings();
+      return;
+    }
+    if (isShowing() &&
+        _loadoutBounds.contains(
+          Offset(event.localPosition.x, event.localPosition.y),
+        )) {
+      onOpenLoadout();
     }
   }
 }

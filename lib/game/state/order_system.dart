@@ -27,7 +27,7 @@ class OrderSystem {
     startShift();
   }
 
-  final OrderResultGenerator _orderGenerator;
+  OrderResultGenerator _orderGenerator;
   final List<CustomerSlotState> slots;
   int _nextOrderSequence = 1;
   String? _tutorialProtectedCustomerId;
@@ -46,7 +46,15 @@ class OrderSystem {
   List<CustomerSlotState> get activeSlots =>
       slots.where((slot) => slot.hasActiveOrder).toList(growable: false);
 
-  void startShift({bool tutorialFirstOrder = false}) {
+  void configureGenerator(OrderResultGenerator generator) {
+    _orderGenerator = generator;
+  }
+
+  void startShift({
+    bool tutorialFirstOrder = false,
+    OrderResultGenerator? generator,
+  }) {
+    if (generator != null) _orderGenerator = generator;
     _tutorialProtectedCustomerId = null;
     for (final slot in slots) {
       _beginGeneratedOrder(

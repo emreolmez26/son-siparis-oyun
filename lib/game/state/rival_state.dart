@@ -79,6 +79,24 @@ class RivalState {
     _counterSequence = 1;
   }
 
+  void startDailyChallenge({required int seed}) {
+    clearTemporaryState();
+    enabled = true;
+    this.seed = seed;
+    _schedule = _scheduler.buildSchedule(
+      day: 5,
+      rivalId: rivalId,
+      testSeed: seed,
+    );
+    defendedCount = 0;
+    affectedCount = 0;
+    _resolutions.clear();
+    _affectedEventIds.clear();
+    _elapsedSeconds = 0;
+    _nextScheduleIndex = 0;
+    _counterSequence = 1;
+  }
+
   void advance(double dt, {required bool canAdvance}) {
     if (!enabled || !canAdvance || dt <= 0) return;
     _elapsedSeconds += dt;

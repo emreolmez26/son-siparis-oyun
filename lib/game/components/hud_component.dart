@@ -3,6 +3,7 @@ import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 
 import '../game_layout.dart';
+import '../models/game_mode.dart';
 import '../state/shift_state.dart';
 import 'shell_canvas.dart';
 
@@ -10,6 +11,9 @@ class HudComponent extends PositionComponent with TapCallbacks {
   HudComponent({
     required this.shiftState,
     required this.dayProvider,
+    required this.modeProvider,
+    required this.dailyDateProvider,
+    required this.dailyScoreProvider,
     this.onPausePressed,
   }) : super(
          position: Vector2(GameLayout.horizontalPadding, GameLayout.hudTop),
@@ -21,6 +25,9 @@ class HudComponent extends PositionComponent with TapCallbacks {
 
   final ShiftState shiftState;
   final int Function() dayProvider;
+  final GameMode Function() modeProvider;
+  final String Function() dailyDateProvider;
+  final int Function() dailyScoreProvider;
   final void Function()? onPausePressed;
   double _walletPulseRemaining = 0;
   double _comboPulseRemaining = 0;
@@ -48,6 +55,7 @@ class HudComponent extends PositionComponent with TapCallbacks {
 
   @override
   void render(Canvas canvas) {
+    final daily = modeProvider() == GameMode.dailyChallenge;
     ShellCanvas.panel(
       canvas,
       size.toRect(),
@@ -73,15 +81,21 @@ class HudComponent extends PositionComponent with TapCallbacks {
       );
     }
 
-    _drawStat(canvas, 'GÜN 1', 'Akşam Servisi', 22, 164);
+    _drawStat(
+      canvas,
+      daily ? 'GÜNÜN MÜCADELESİ' : 'GÜN 1',
+      daily ? dailyDateProvider() : 'Akşam Servisi',
+      22,
+      164,
+    );
     _drawStat(canvas, 'SÜRE', shiftState.formattedRemainingTime, 202, 100);
     _drawStat(
       canvas,
-      'KASA',
-      '${shiftState.walletCoins}',
+      daily ? 'SKOR' : 'KASA',
+      daily ? '${dailyScoreProvider()}' : '${shiftState.walletCoins}',
       322,
       88,
-      prefix: '● ',
+      prefix: daily ? '' : '● ',
     );
     _drawStat(canvas, 'KOMBO', 'x${shiftState.currentCombo}', 430, 102);
     _drawStat(canvas, 'SİPARİŞ', '${shiftState.completedOrders}/10', 550, 104);
@@ -90,7 +104,13 @@ class HudComponent extends PositionComponent with TapCallbacks {
       Rect.fromLTWH(12, 5, 176, 47),
       Paint()..color = GameLayout.hudColor,
     );
-    _drawStat(canvas, 'GÜN ${dayProvider()}', 'Akşam Servisi', 22, 164);
+    _drawStat(
+      canvas,
+      daily ? 'GÜNÜN MÜCADELESİ' : 'GÜN ${dayProvider()}',
+      daily ? dailyDateProvider() : 'Akşam Servisi',
+      22,
+      176,
+    );
     final pauseRect = _pauseRect;
     ShellCanvas.panel(
       canvas,

@@ -35,10 +35,17 @@ class SequenceOrderResultSource implements OrderResultSource {
 }
 
 class OrderResultGenerator {
-  OrderResultGenerator({OrderResultSource? source})
-    : _source = source ?? SeededOrderResultSource(731);
+  OrderResultGenerator({
+    OrderResultSource? source,
+    Iterable<CardType> availableResults = defaultAvailableResults,
+  }) : _source = source ?? SeededOrderResultSource(731),
+       availableResults = List.unmodifiable(availableResults) {
+    if (this.availableResults.isEmpty) {
+      throw ArgumentError.value(availableResults, 'availableResults');
+    }
+  }
 
-  static const availableResults = <CardType>[
+  static const defaultAvailableResults = <CardType>[
     CardType.classicBurger,
     CardType.deluxeBurger,
     CardType.spicyBurger,
@@ -46,6 +53,7 @@ class OrderResultGenerator {
   ];
 
   final OrderResultSource _source;
+  final List<CardType> availableResults;
 
   CardType nextResult({required Iterable<CardType> activeResults}) {
     final active = activeResults.toSet();

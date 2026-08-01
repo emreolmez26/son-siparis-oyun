@@ -10,6 +10,7 @@ class GameFlowController {
   AppScreen screen = AppScreen.mainMenu;
   UpgradeDefinition? selectedUpgrade;
   AppScreen? _recipeBookReturnScreen;
+  AppScreen? _loadoutReturnScreen;
 
   bool get isGameplayActive => screen == AppScreen.gameplay;
   bool get canConfirmUpgrade => selectedUpgrade != null;
@@ -17,6 +18,42 @@ class GameFlowController {
   bool startShift() {
     if (screen != AppScreen.mainMenu) return false;
     screen = AppScreen.gameplay;
+    return true;
+  }
+
+  bool startDailyChallenge() {
+    if (screen != AppScreen.mainMenu) return false;
+    screen = AppScreen.gameplay;
+    return true;
+  }
+
+  bool showMarket() {
+    if (screen != AppScreen.mainMenu) return false;
+    screen = AppScreen.market;
+    return true;
+  }
+
+  bool closeMarket() {
+    if (screen != AppScreen.market) return false;
+    screen = AppScreen.mainMenu;
+    return true;
+  }
+
+  bool showKitchenLoadout() {
+    if (screen != AppScreen.mainMenu && screen != AppScreen.market) {
+      return false;
+    }
+    _loadoutReturnScreen = screen;
+    screen = AppScreen.kitchenLoadout;
+    return true;
+  }
+
+  bool closeKitchenLoadout() {
+    if (screen != AppScreen.kitchenLoadout || _loadoutReturnScreen == null) {
+      return false;
+    }
+    screen = _loadoutReturnScreen!;
+    _loadoutReturnScreen = null;
     return true;
   }
 
@@ -35,7 +72,24 @@ class GameFlowController {
   void resetToMainMenu() {
     selectedUpgrade = null;
     _recipeBookReturnScreen = null;
+    _loadoutReturnScreen = null;
     screen = AppScreen.mainMenu;
+  }
+
+  void showDailyChallengeResults() {
+    if (screen == AppScreen.gameplay) screen = AppScreen.dailyChallengeResults;
+  }
+
+  bool retryDailyChallenge() {
+    if (screen != AppScreen.dailyChallengeResults) return false;
+    screen = AppScreen.gameplay;
+    return true;
+  }
+
+  bool dailyResultsToMainMenu() {
+    if (screen != AppScreen.dailyChallengeResults) return false;
+    screen = AppScreen.mainMenu;
+    return true;
   }
 
   bool showRecipeBook() {

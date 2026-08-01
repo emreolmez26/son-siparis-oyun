@@ -31,14 +31,19 @@ class PantrySupplyState {
         position: position,
       );
     }
+    _activeSupplyIds = _slots.keys.toSet();
   }
 
   final double spawnCooldownSeconds;
   final Map<String, PantrySupplySlot> _slots = {};
+  late Set<String> _activeSupplyIds;
   int _nextWorkingSequence = 1;
 
-  Iterable<PantrySupplySlot> get slots => _slots.values;
-  int get slotCount => _slots.length;
+  Iterable<PantrySupplySlot> get slots =>
+      _slots.values.where((slot) => _activeSupplyIds.contains(slot.id));
+  Iterable<PantrySupplySlot> get allSlots => _slots.values;
+  int get slotCount => _activeSupplyIds.length;
+  bool isActive(String supplyId) => _activeSupplyIds.contains(supplyId);
 
   PantrySupplySlot slotFor(String supplyId) {
     final slot = _slots[supplyId];
@@ -50,9 +55,18 @@ class PantrySupplyState {
 
   bool isAvailable(String supplyId) => slotFor(supplyId).isAvailable;
 
+  void configureActive(Iterable<String> supplyIds) {
+    final requested = supplyIds.toSet();
+    if (!requested.every(_slots.containsKey)) {
+      throw ArgumentError.value(supplyIds, 'supplyIds', 'Unknown pantry slot');
+    }
+    _activeSupplyIds = requested;
+    resetForShift();
+  }
+
   CardDefinition? takeWorkingDefinition(String supplyId) {
     final slot = slotFor(supplyId);
-    if (!slot.isAvailable) return null;
+    if (!isActive(supplyId) || !slot.isAvailable) return null;
     final sequence = _nextWorkingSequence.toString().padLeft(4, '0');
     _nextWorkingSequence++;
     _slots[supplyId] = slot.copyWith(

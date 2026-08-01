@@ -11,7 +11,9 @@ import 'components/game_card_component.dart';
 import 'components/hud_component.dart';
 import 'components/kitchen_table_component.dart';
 import 'components/last_second_feedback_component.dart';
+import 'components/kitchen_loadout_component.dart';
 import 'components/main_menu_component.dart';
+import 'components/market_component.dart';
 import 'components/order_failure_feedback_component.dart';
 import 'components/pantry_supply_component.dart';
 import 'components/pause_overlay_component.dart';
@@ -33,6 +35,9 @@ import 'components/stack_preview_component.dart';
 import 'components/shift_moment_component.dart';
 import 'components/tutorial_overlay_component.dart';
 import 'components/upgrade_selection_component.dart';
+import 'components/daily_challenge_results_component.dart';
+import 'data/content_unlock_definitions.dart';
+import 'data/market_catalog.dart';
 import 'data/prototype_card_definitions.dart';
 import 'data/prototype_customer_definitions.dart';
 import 'data/prototype_processing_definitions.dart';
@@ -44,6 +49,8 @@ import 'models/app_screen.dart';
 import 'models/card_definition.dart';
 import 'models/card_drag_snapshot.dart';
 import 'models/card_zone.dart';
+import 'models/content_ownership.dart';
+import 'models/game_mode.dart';
 import 'models/game_settings.dart';
 import 'models/customer_slot_state.dart';
 import 'models/processing_job.dart';
@@ -55,11 +62,15 @@ import 'models/shift_phase.dart';
 import 'models/shift_moment.dart';
 import 'models/tutorial_status.dart';
 import 'models/upgrade_id.dart';
+import 'models/kitchen_loadout.dart';
 import 'state/equipment_processing_state.dart';
 import 'state/feedback_state.dart';
+import 'state/daily_challenge_state.dart';
 import 'state/game_flow_controller.dart';
 import 'state/kitchen_table_state.dart';
 import 'state/order_system.dart';
+import 'state/loadout_state.dart';
+import 'state/market_state.dart';
 import 'state/pantry_supply_state.dart';
 import 'state/run_progression_state.dart';
 import 'state/shift_state.dart';
@@ -72,6 +83,9 @@ import 'services/audio_service.dart';
 import 'services/haptic_service.dart';
 import 'services/save_service.dart';
 import 'systems/equipment_target_resolver.dart';
+import 'systems/daily_seed_factory.dart';
+import 'systems/loadout_recipe_resolver.dart';
+import 'systems/order_result_generator.dart';
 import 'systems/processing_output_resolver.dart';
 import 'systems/recipe_resolver.dart';
 import 'systems/service_target_resolver.dart';
@@ -85,9 +99,11 @@ class SonSiparisGame extends FlameGame {
     AudioService? audioService,
     HapticService? hapticService,
     int? sabotageTestSeed,
+    DateProvider dateProvider = const LocalDateProvider(),
   }) : _initialSaveData = initialSaveData ?? SaveData(),
        _saveService = saveService,
        _sabotageTestSeed = sabotageTestSeed,
+       _dateProvider = dateProvider,
        super(
          camera: CameraComponent.withFixedResolution(
            width: GameLayout.designWidth,
@@ -102,6 +118,7 @@ class SonSiparisGame extends FlameGame {
   final SaveData _initialSaveData;
   final SaveService? _saveService;
   final int? _sabotageTestSeed;
+  final DateProvider _dateProvider;
   late final GameSettings settings;
   late final AudioService audio;
   late final HapticService haptics;
@@ -150,6 +167,30 @@ class SonSiparisGame extends FlameGame {
   late final RecipeDiscoveryState _recipeDiscoveryState = RecipeDiscoveryState(
     initiallyDiscovered: _initialSaveData.discoveredRecipeIds,
   );
+  late final ContentOwnership _ownership = ContentOwnership(
+    ownedPackIds: _initialSaveData.ownedMarketPackIds,
+    unlockedIngredientIds: _initialSaveData.unlockedIngredientIds,
+    unlockedEquipmentIds: _initialSaveData.unlockedEquipmentIds,
+    unlockedRecipeIds: _initialSaveData.unlockedRecipeIds,
+  );
+  late final LoadoutState _loadoutState = LoadoutState(
+    ownership: _ownership,
+    initialLoadout: KitchenLoadout(
+      ingredientIds: _initialSaveData.selectedIngredientIds,
+      equipmentIds: _initialSaveData.selectedEquipmentIds,
+    ),
+  );
+  late final MarketState _marketState = MarketState(
+    catalog: marketCatalog,
+    progression: _flow.progression,
+    ownership: _ownership,
+    loadout: _loadoutState,
+    discovery: _recipeDiscoveryState,
+  );
+  late final DailyChallengeState _dailyChallengeState = DailyChallengeState(
+    dateProvider: _dateProvider,
+    initialRecords: _initialSaveData.dailyChallengeRecords,
+  );
   late final ShiftMomentTracker _shiftMomentTracker = ShiftMomentTracker();
   late final RivalState _rivalState = RivalState();
   late final OrderSystem _orderSystem = OrderSystem(
@@ -187,6 +228,9 @@ class SonSiparisGame extends FlameGame {
   late final HudComponent _hud = HudComponent(
     shiftState: _shiftState,
     dayProvider: () => _flow.progression.currentDay,
+    modeProvider: () => _gameMode,
+    dailyDateProvider: () => _dailyChallengeState.activeDateKey ?? '',
+    dailyScoreProvider: () => _dailyChallengeState.score.displayedScore,
     onPausePressed: _togglePause,
   );
   late final ComboFeedbackComponent _comboFeedback = ComboFeedbackComponent();
@@ -201,6 +245,9 @@ class SonSiparisGame extends FlameGame {
   bool _activeCardSpawnedFromPantry = false;
   String? _activeSupplyId;
   bool _hasPendingPatienceBonus = false;
+  GameMode _gameMode = GameMode.career;
+  String? _loadoutFeedback;
+  int _wrongServiceSequence = 1;
 
   ShiftState get shiftState => _shiftState;
   GameFlowController get flow => _flow;
@@ -212,6 +259,11 @@ class SonSiparisGame extends FlameGame {
   RecipeDiscoveryState get recipeDiscoveryState => _recipeDiscoveryState;
   ShiftMomentTracker get shiftMomentTracker => _shiftMomentTracker;
   RivalState get rivalState => _rivalState;
+  ContentOwnership get ownership => _ownership;
+  LoadoutState get loadoutState => _loadoutState;
+  MarketState get marketState => _marketState;
+  DailyChallengeState get dailyChallengeState => _dailyChallengeState;
+  GameMode get gameMode => _gameMode;
   ShiftMoment? get selectedShiftMoment => _shiftMomentTracker.selectMoment();
   bool get isGameplayInputAllowed =>
       _flow.isGameplayActive && _shiftState.isGameplayInputAllowed;
@@ -279,6 +331,35 @@ class SonSiparisGame extends FlameGame {
         canContinue: () => canContinue,
         onOpenRecipeBook: _openRecipeBook,
         onOpenSettings: _openSettings,
+        onOpenMarket: _openMarket,
+        onOpenLoadout: _openLoadout,
+        onStartDailyChallenge: _startDailyChallengeFromMenu,
+        ownedPackCount: () => _ownership.ownedPackIds.length,
+        todayBestLabel: () {
+          final key = const DailySeedFactory().dateKey(_dateProvider.now());
+          return _dailyChallengeState.bestFor(key)?.bestScore.toString() ??
+              'İLK DENEME';
+        },
+      ),
+      MarketComponent(
+        isShowing: () => _flow.screen == AppScreen.market,
+        catalog: marketCatalog,
+        progression: _flow.progression,
+        ownership: _ownership,
+        marketState: _marketState,
+        onPurchase: _purchaseMarketPack,
+        onOpenLoadout: _openLoadout,
+        onBack: _closeMarket,
+      ),
+      KitchenLoadoutComponent(
+        isShowing: () => _flow.screen == AppScreen.kitchenLoadout,
+        ownership: _ownership,
+        loadoutState: _loadoutState,
+        onToggleIngredient: _toggleLoadoutIngredient,
+        onToggleEquipment: _toggleLoadoutEquipment,
+        onSave: _saveLoadout,
+        onBack: _closeLoadoutWithoutSaving,
+        feedbackProvider: () => _loadoutFeedback,
       ),
       SettingsComponent(
         isShowing: () => _flow.screen == AppScreen.settings,
@@ -292,6 +373,9 @@ class SonSiparisGame extends FlameGame {
         entries: recipeBookEntries,
         discoveryState: _recipeDiscoveryState,
         progression: _flow.progression,
+        ownership: _ownership,
+        loadoutState: _loadoutState,
+        modeProvider: () => _gameMode,
         isShowing: () => _flow.screen == AppScreen.recipeBook,
         onClose: _closeRecipeBook,
       ),
@@ -305,6 +389,13 @@ class SonSiparisGame extends FlameGame {
         isShowing: () => _flow.screen == AppScreen.upgradeSelection,
         onConfirm: _confirmUpgradeSelection,
       ),
+      DailyChallengeResultsComponent(
+        isShowing: () => _flow.screen == AppScreen.dailyChallengeResults,
+        challenge: _dailyChallengeState,
+        shiftState: _shiftState,
+        onRetry: _retryDailyChallenge,
+        onMainMenu: _dailyResultsToMainMenu,
+      ),
       TutorialOverlayComponent(
         tutorialState: _tutorialState,
         sourceBoundsProvider: _tutorialSourceBounds,
@@ -312,11 +403,13 @@ class SonSiparisGame extends FlameGame {
         onSkip: _skipTutorial,
       ),
     ]);
-    for (final slot in _pantryState.slots) {
+    for (final slot in _pantryState.allSlots) {
       final component = PantrySupplyComponent(
         supplyId: slot.id,
         pantryState: _pantryState,
-        isShowing: () => _flow.screen == AppScreen.gameplay,
+        isShowing: () =>
+            _flow.screen == AppScreen.gameplay &&
+            _pantryState.isActive(slot.id),
         canInteract: () =>
             isGameplayInputAllowed &&
             _tutorialState.allowsCard(slot.definition),
@@ -484,6 +577,11 @@ class SonSiparisGame extends FlameGame {
       _restoreActiveDragSnapshot(cardId);
       _shiftState.resetCombo();
       if (_rivalState.triggerFakeOrderPenalty()) {
+        if (_gameMode == GameMode.dailyChallenge) {
+          _dailyChallengeState.score.recordSabotageHit(
+            'fake:${_rivalState.resolutions.last.event.id}',
+          );
+        }
         _comboMilestones.record(0);
         _hud.triggerComboPulse();
         audio.play(SoundEventId.sabotageHit);
@@ -491,9 +589,9 @@ class SonSiparisGame extends FlameGame {
       }
     } else if (serviceTarget != null) {
       final definition = _tableState.definitionFor(cardId);
-      final rewardCoins = _flow.progression.upgrades.effectiveRewardFor(
-        definition,
-      );
+      final rewardCoins = _gameMode == GameMode.dailyChallenge
+          ? definition.baseRewardCoins
+          : _flow.progression.upgrades.effectiveRewardFor(definition);
       final completion = _orderSystem.tryServe(
         cardId: cardId,
         tableState: _tableState,
@@ -505,8 +603,17 @@ class SonSiparisGame extends FlameGame {
         _restoreActiveDragSnapshot(cardId);
       } else {
         _cardComponents[cardId]?.triggerValidDrop();
-        _flow.progression.addWalletCoins(completion.rewardCoins);
-        _persist();
+        if (_gameMode == GameMode.career) {
+          _flow.progression.addWalletCoins(completion.rewardCoins);
+          _persist();
+        } else {
+          _dailyChallengeState.score.recordService(
+            transactionId: 'service:${completion.orderId}',
+            serviceReward: definition.baseRewardCoins,
+            comboAfterService: _shiftState.currentCombo,
+            remainingPatienceSeconds: completion.remainingPatienceSeconds,
+          );
+        }
         _shiftMomentTracker.recordSuccessfulService(
           resultDefinition: definition,
           remainingPatienceSeconds: completion.remainingPatienceSeconds,
@@ -520,8 +627,9 @@ class SonSiparisGame extends FlameGame {
           _persist();
         }
         _hasPendingPatienceBonus =
+            _gameMode == GameMode.career &&
             _flow.progression.upgrades.levelFor(UpgradeId.coolHeadedService) >
-            0;
+                0;
         _serviceCounter.triggerSuccessGlow();
         _serviceFeedback.trigger(
           rewardCoins: completion.rewardCoins,
@@ -545,14 +653,20 @@ class SonSiparisGame extends FlameGame {
       }
     } else if (_isWrongServiceDrop(cardId, cardPosition)) {
       _restoreActiveDragSnapshot(cardId);
+      if (_gameMode == GameMode.dailyChallenge) {
+        _dailyChallengeState.score.recordWrongService(
+          'wrong:${_wrongServiceSequence++}',
+        );
+      }
       _serviceCounter.triggerRejection();
       audio.play(SoundEventId.wrongService);
     } else {
       final equipmentTarget = _resolveEquipmentTarget(cardId, cardPosition);
       if (equipmentTarget != null) {
         final durationSeconds =
-            equipmentTarget.processingDefinition.action ==
-                ProcessingAction.cookPatty
+            _gameMode == GameMode.career &&
+                equipmentTarget.processingDefinition.action ==
+                    ProcessingAction.cookPatty
             ? _flow.progression.upgrades.effectivePanDuration()
             : equipmentTarget.processingDefinition.baseDurationSeconds;
         final started =
@@ -619,7 +733,8 @@ class SonSiparisGame extends FlameGame {
       resultPopCardId: recipeResolution?.resultCardId,
     );
     if (recipeResolution != null) {
-      if (_recipeDiscoveryState.discover(recipeResolution.recipeId)) {
+      if (_gameMode == GameMode.career &&
+          _recipeDiscoveryState.discover(recipeResolution.recipeId)) {
         _persist();
       }
       _tutorialState.recipeResolved(recipeId: recipeResolution.recipeId);
@@ -676,6 +791,12 @@ class SonSiparisGame extends FlameGame {
     } else if (priorSabotage?.phase == SabotagePhase.warning &&
         currentSabotage?.phase == SabotagePhase.active) {
       audio.play(SoundEventId.sabotageActivated);
+      if (_gameMode == GameMode.dailyChallenge &&
+          currentSabotage!.event.type != SabotageType.fakeOrder) {
+        _dailyChallengeState.score.recordSabotageHit(
+          'hit:${currentSabotage.event.id}',
+        );
+      }
     }
     final pausedEquipmentIds = <String>{
       if (_rivalState.isPowerOutageActive) ...const [
@@ -697,10 +818,12 @@ class SonSiparisGame extends FlameGame {
     }
     for (final refillSlot in _orderSystem.advanceFeedback(dt)) {
       final receivesBonus = _hasPendingPatienceBonus;
-      final patience = _flow.progression.upgrades.nextOrderPatienceDuration(
-        hasPendingBonus: receivesBonus,
-        baseDurationSeconds: refillSlot.definition.basePatienceSeconds,
-      );
+      final patience = _gameMode == GameMode.dailyChallenge
+          ? refillSlot.definition.basePatienceSeconds
+          : _flow.progression.upgrades.nextOrderPatienceDuration(
+              hasPendingBonus: receivesBonus,
+              baseDurationSeconds: refillSlot.definition.basePatienceSeconds,
+            );
       _orderSystem.refillCustomer(
         refillSlot.definition.id,
         totalPatienceSeconds: patience,
@@ -725,7 +848,10 @@ class SonSiparisGame extends FlameGame {
         resultDefinition: definition.outputDefinition,
         outputPosition: outputPosition,
       );
-      if (_recipeDiscoveryState.discover('crispy_fries')) _persist();
+      if (_gameMode == GameMode.career &&
+          _recipeDiscoveryState.discover('crispy_fries')) {
+        _persist();
+      }
     } else {
       _tableState.completeProcessedCard(
         cardId: completedJob.inputCardId,
@@ -741,11 +867,15 @@ class SonSiparisGame extends FlameGame {
   }
 
   void _handleCustomerFailure(CustomerSlotState slot) {
+    final failedOrderId = slot.order?.id;
     if (!_orderSystem.failCustomer(slot.definition.id) ||
         !_shiftState.recordMissedOrder(enterFeedback: false)) {
       return;
     }
     _failureFeedback.trigger();
+    if (_gameMode == GameMode.dailyChallenge && failedOrderId != null) {
+      _dailyChallengeState.score.recordMissedCustomer('miss:$failedOrderId');
+    }
     _comboMilestones.record(0);
     _hud.triggerComboPulse();
     audio.play(SoundEventId.orderFailed);
@@ -768,7 +898,9 @@ class SonSiparisGame extends FlameGame {
     _rivalState.endShift();
     _resetPreparationState();
     _orderSystem.closeActiveOrder();
-    _tutorialState.finishFirstShiftSafely();
+    if (_gameMode == GameMode.career) {
+      _tutorialState.finishFirstShiftSafely();
+    }
     _orderSystem.clearTutorialPatienceProtection();
     _hasPendingPatienceBonus = false;
     _shiftState.setSabotageSummary(
@@ -776,8 +908,23 @@ class SonSiparisGame extends FlameGame {
       affected: _rivalState.affectedCount,
     );
     _shiftState.endShift();
-    _flow.showResults();
-    _persist();
+    if (_gameMode == GameMode.dailyChallenge) {
+      _flow.showDailyChallengeResults();
+      unawaited(
+        _dailyChallengeState.commitResult(
+          completedOrders: _shiftState.completedOrders,
+          highestCombo: _shiftState.highestCombo,
+          missedOrders: _shiftState.missedOrders,
+          sabotagesDefended: _shiftState.sabotagesDefended,
+          sabotageHits: _shiftState.sabotagesAffected,
+          recordedAt: _dailyChallengeState.now(),
+          persistCurrentSnapshot: _persistChecked,
+        ),
+      );
+    } else {
+      _flow.showResults();
+      _persist();
+    }
     audio.play(SoundEventId.shiftComplete);
     _hideInteractionPreviews();
     _syncCardComponentsFromState();
@@ -785,9 +932,25 @@ class SonSiparisGame extends FlameGame {
 
   void _startShiftFromMenu() {
     if (_flow.startShift()) {
+      _gameMode = GameMode.career;
       final startsTutorial = _tutorialState.startFirstShift();
-      _prepareFreshShift(tutorialFirstOrder: startsTutorial);
+      _prepareFreshShift(
+        tutorialFirstOrder: startsTutorial,
+        loadout: startsTutorial ? KitchenLoadout.starter : _loadoutState.active,
+      );
     }
+  }
+
+  void _startDailyChallengeFromMenu() {
+    if (!_flow.startDailyChallenge()) return;
+    _gameMode = GameMode.dailyChallenge;
+    _dailyChallengeState.start();
+    _prepareFreshShift(
+      loadout: const KitchenLoadout(
+        ingredientIds: allIngredientIds,
+        equipmentIds: allEquipmentIds,
+      ),
+    );
   }
 
   void _showUpgradeSelection() {
@@ -805,22 +968,47 @@ class SonSiparisGame extends FlameGame {
   void _confirmUpgradeSelection() {
     if (_flow.confirmUpgrade() != null) {
       _persist();
-      _prepareFreshShift();
+      _prepareFreshShift(loadout: _loadoutState.active);
     }
   }
 
-  void _prepareFreshShift({bool tutorialFirstOrder = false}) {
+  void _prepareFreshShift({
+    bool tutorialFirstOrder = false,
+    KitchenLoadout? loadout,
+  }) {
     _cancelActiveDrag();
+    _configureRuntimeKitchen(loadout ?? _loadoutState.active);
     _resetPreparationState();
-    _orderSystem.startShift(tutorialFirstOrder: tutorialFirstOrder);
+    final supportedTypes = _gameMode == GameMode.dailyChallenge
+        ? recipeResultTypes.values.toSet()
+        : const LoadoutRecipeResolver().supportedResultTypes(
+            loadout: loadout ?? _loadoutState.active,
+            unlockedRecipeIds: _ownership.unlockedRecipeIds,
+          );
+    final orderSeed = _gameMode == GameMode.dailyChallenge
+        ? _dailyChallengeState.streamSeed('orders')
+        : (_flow.progression.currentDay * 7919) + 731;
+    _orderSystem.startShift(
+      tutorialFirstOrder: tutorialFirstOrder,
+      generator: OrderResultGenerator(
+        source: SeededOrderResultSource(orderSeed),
+        availableResults: supportedTypes,
+      ),
+    );
     _hasPendingPatienceBonus = false;
     _shiftState.walletCoins = _flow.progression.walletCoins;
     _shiftState.startNewShift();
-    _rivalState.startShift(
-      day: _flow.progression.currentDay,
-      tutorialReplay: tutorialFirstOrder,
-      testSeed: _sabotageTestSeed,
-    );
+    if (_gameMode == GameMode.dailyChallenge) {
+      _rivalState.startDailyChallenge(
+        seed: _dailyChallengeState.streamSeed('sabotages'),
+      );
+    } else {
+      _rivalState.startShift(
+        day: _flow.progression.currentDay,
+        tutorialReplay: tutorialFirstOrder,
+        testSeed: _sabotageTestSeed,
+      );
+    }
     _shiftMomentTracker.startShift(day: _flow.progression.currentDay);
     _hideInteractionPreviews();
     _syncCardComponentsFromState();
@@ -830,10 +1018,20 @@ class SonSiparisGame extends FlameGame {
     _processingState.clearActiveJob();
     _rivalState.clearTemporaryState();
     _tableState.resetWorkingCardsForNewShift(
-      equipmentDefinitions: prototypeEquipmentDefinitions,
+      equipmentDefinitions: prototypeEquipmentDefinitions.where(
+        (definition) =>
+            _activeRuntimeLoadout.equipmentIds.contains(definition.id),
+      ),
       equipmentTablePositions: GameLayout.initialEquipmentTablePositions,
     );
     _pantryState.resetForShift();
+  }
+
+  KitchenLoadout _activeRuntimeLoadout = KitchenLoadout.starter;
+
+  void _configureRuntimeKitchen(KitchenLoadout loadout) {
+    _activeRuntimeLoadout = loadout.copy();
+    _pantryState.configureActive(loadout.ingredientIds);
   }
 
   void _restoreActiveDragSnapshot(String cardId) {
@@ -903,6 +1101,86 @@ class SonSiparisGame extends FlameGame {
     if (_flow.closeSettings()) audio.play(SoundEventId.buttonTap);
   }
 
+  void _openMarket() {
+    if (_flow.showMarket()) audio.play(SoundEventId.buttonTap);
+  }
+
+  void _closeMarket() {
+    if (_flow.closeMarket()) audio.play(SoundEventId.buttonTap);
+  }
+
+  void _purchaseMarketPack(String packId) {
+    unawaited(
+      _marketState.purchase(
+        packId: packId,
+        isMarketScreen: _flow.screen == AppScreen.market,
+        persistCurrentSnapshot: _persistChecked,
+      ),
+    );
+  }
+
+  void _openLoadout() {
+    if (_flow.showKitchenLoadout()) {
+      _loadoutState.openEditor();
+      _loadoutFeedback = null;
+      audio.play(SoundEventId.buttonTap);
+    }
+  }
+
+  void _toggleLoadoutIngredient(String id) {
+    if (!_loadoutState.toggleIngredient(id) && !_ownership.ownsIngredient(id)) {
+      _loadoutFeedback = 'MARKETTEN AÇILIR';
+    } else {
+      _loadoutFeedback = null;
+    }
+  }
+
+  void _toggleLoadoutEquipment(String id) {
+    if (!_loadoutState.toggleEquipment(id) && !_ownership.ownsEquipment(id)) {
+      _loadoutFeedback = 'MARKETTEN AÇILIR';
+    } else {
+      _loadoutFeedback = null;
+    }
+  }
+
+  void _saveLoadout() {
+    unawaited(() async {
+      final result = await _loadoutState.save(_persistChecked);
+      _loadoutFeedback = switch (result) {
+        LoadoutSaveResult.saved => 'MUTFAK KAYDEDİLDİ',
+        LoadoutSaveResult.invalid => 'EN AZ BİR TARİF HAZIRLANABİLMELİ',
+        LoadoutSaveResult.persistenceFailed => 'KAYIT BAŞARISIZ',
+        LoadoutSaveResult.noDraft => null,
+      };
+      if (result == LoadoutSaveResult.saved) _flow.closeKitchenLoadout();
+    }());
+  }
+
+  void _closeLoadoutWithoutSaving() {
+    _loadoutState.closeWithoutSaving();
+    _loadoutFeedback = null;
+    _flow.closeKitchenLoadout();
+  }
+
+  void _retryDailyChallenge() {
+    if (!_flow.retryDailyChallenge()) return;
+    _gameMode = GameMode.dailyChallenge;
+    _dailyChallengeState.start();
+    _prepareFreshShift(
+      loadout: const KitchenLoadout(
+        ingredientIds: allIngredientIds,
+        equipmentIds: allEquipmentIds,
+      ),
+    );
+  }
+
+  void _dailyResultsToMainMenu() {
+    if (!_flow.dailyResultsToMainMenu()) return;
+    _gameMode = GameMode.career;
+    _resetPreparationState();
+    _syncCardComponentsFromState();
+  }
+
   void _settingsChanged() {
     audio.play(SoundEventId.buttonTap);
     _persist();
@@ -918,9 +1196,14 @@ class SonSiparisGame extends FlameGame {
     unawaited(_saveService?.reset());
     _flow.progression.reset();
     _recipeDiscoveryState.reset();
+    _ownership.reset();
+    _loadoutState.reset();
+    _dailyChallengeState.resetHistory();
     _tutorialState.resetForReplay();
     settings.reset();
     _flow.resetToMainMenu();
+    _gameMode = GameMode.career;
+    _configureRuntimeKitchen(KitchenLoadout.starter);
     _resetPreparationState();
     _shiftState.walletCoins = _flow.progression.walletCoins;
     _hideInteractionPreviews();
@@ -945,11 +1228,24 @@ class SonSiparisGame extends FlameGame {
     discoveredRecipeIds: _recipeDiscoveryState.discoveredRecipeIds,
     tutorialStatus: _tutorialState.status,
     settings: settings,
+    ownedMarketPackIds: _ownership.ownedPackIds,
+    unlockedIngredientIds: _ownership.unlockedIngredientIds,
+    unlockedEquipmentIds: _ownership.unlockedEquipmentIds,
+    unlockedRecipeIds: _ownership.unlockedRecipeIds,
+    selectedIngredientIds: _loadoutState.active.ingredientIds,
+    selectedEquipmentIds: _loadoutState.active.equipmentIds,
+    dailyChallengeRecords: _dailyChallengeState.records,
   );
 
   void _persist() {
     final service = _saveService;
     if (service != null) unawaited(service.save(_currentSaveData()));
+  }
+
+  Future<bool> _persistChecked() async {
+    final service = _saveService;
+    if (service == null) return true;
+    return service.saveChecked(_currentSaveData());
   }
 
   List<Rect> _tutorialSourceBounds() {
@@ -1097,7 +1393,11 @@ class SonSiparisGame extends FlameGame {
       audio.play(SoundEventId.invalidDrop);
       return false;
     }
+    final eventId = active.event.id;
     if (!_rivalState.tryCounter(runtimeId)) return false;
+    if (_gameMode == GameMode.dailyChallenge) {
+      _dailyChallengeState.score.recordSabotageDefended('defend:$eventId');
+    }
     audio.play(SoundEventId.sabotageCountered);
     haptics.trigger(HapticEvent.sabotageCountered);
     return true;

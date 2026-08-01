@@ -1,10 +1,6 @@
 class RecipeDiscoveryState {
   RecipeDiscoveryState({Iterable<String>? initiallyDiscovered})
-    : _discoveredRecipeIds = {
-        'classic_burger',
-        'crispy_fries',
-        ...?initiallyDiscovered,
-      };
+    : _discoveredRecipeIds = {'classic_burger', ...?initiallyDiscovered};
 
   final Set<String> _discoveredRecipeIds;
 
@@ -17,6 +13,13 @@ class RecipeDiscoveryState {
   void reset() {
     _discoveredRecipeIds
       ..clear()
-      ..addAll(const {'classic_burger', 'crispy_fries'});
+      ..add('classic_burger');
+  }
+
+  void replaceWith(Iterable<String> recipeIds) {
+    _discoveredRecipeIds
+      ..clear()
+      ..addAll(recipeIds)
+      ..add('classic_burger');
   }
 }

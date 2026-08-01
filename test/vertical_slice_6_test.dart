@@ -108,7 +108,7 @@ void main() {
   group('save schema and recovery', () {
     test('default save creates day 1, wallet 120, and no progress', () {
       final data = SaveData();
-      expect(data.schemaVersion, 1);
+      expect(data.schemaVersion, 2);
       expect(data.day, 1);
       expect(data.wallet, 120);
       expect(data.hasProgress, isFalse);
