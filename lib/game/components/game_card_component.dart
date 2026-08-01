@@ -2,6 +2,7 @@ import 'package:flame/components.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 
+import '../art/gameplay_art.dart';
 import '../game_layout.dart';
 import '../models/card_definition.dart';
 import 'shell_canvas.dart';
@@ -275,7 +276,20 @@ class GameCardComponent extends PositionComponent with DragCallbacks {
       ),
       align: TextAlign.center,
     );
-    _drawPlaceholderIcon(canvas);
+    final artwork = GameplayArt.instance.cardImage(
+      definition.type,
+      isActive: isProcessing,
+    );
+    if (artwork != null) {
+      GameplayArt.drawContained(
+        canvas,
+        artwork,
+        Rect.fromLTWH(10, 7, size.x - 20, 37),
+        padding: 1,
+      );
+    } else {
+      _drawPlaceholderIcon(canvas);
+    }
     ShellCanvas.label(
       canvas,
       text: definition.displayName,

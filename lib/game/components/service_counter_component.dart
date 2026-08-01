@@ -61,14 +61,14 @@ class ServiceCounterComponent extends PositionComponent {
           ? const Color(0xFF5B2924)
           : isGlowing
           ? const Color(0xFF5B4824)
-          : GameLayout.serviceColor,
+          : const Color(0xFF3A241A),
       borderColor: isRejecting
           ? const Color(0xFFE56B57)
           : isGlowing
           ? GameLayout.successColor
           : GameLayout.accentColor,
-      radius: 10,
-      borderWidth: isGlowing ? 3 : 1.5,
+      radius: 12,
+      borderWidth: isGlowing ? 3 : 2,
     );
     ShellCanvas.label(
       canvas,
@@ -79,7 +79,7 @@ class ServiceCounterComponent extends PositionComponent {
     );
     ShellCanvas.label(
       canvas,
-      text: 'Hazır sonuç teslim noktası',
+      text: 'Hazır siparişi buraya bırak',
       position: Vector2(size.x / 2, 29),
       style: _hintStyle,
       align: TextAlign.center,

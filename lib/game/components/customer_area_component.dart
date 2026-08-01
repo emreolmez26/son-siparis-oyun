@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 
+import '../art/gameplay_art.dart';
 import '../game_layout.dart';
 import '../models/card_definition.dart';
 import '../models/customer_patience_state.dart';
@@ -52,6 +53,19 @@ class CustomerAreaComponent extends PositionComponent {
         : isFailed
         ? const Color(0xFF8D3D38)
         : accentColor;
+    final slotRect = Rect.fromLTWH(centerX - 50, 4, 248, 98);
+    ShellCanvas.panel(
+      canvas,
+      slotRect,
+      color: const Color(0xDE342119),
+      borderColor: isFailed
+          ? const Color(0xFFE46A35)
+          : isServed
+          ? GameLayout.successColor
+          : const Color(0xFF71492F),
+      radius: 12,
+      borderWidth: 1.3,
+    );
     canvas.drawCircle(
       avatarCenter,
       avatarRadius + 3,
@@ -63,22 +77,51 @@ class CustomerAreaComponent extends PositionComponent {
             : GameLayout.panelStrokeColor,
     );
     canvas.drawCircle(avatarCenter, avatarRadius, Paint()..color = avatarColor);
-    ShellCanvas.label(
-      canvas,
-      text: isServed
-          ? '✓'
-          : isFailed
-          ? '!'
-          : slot.definition.displayLabel,
-      position: Vector2(centerX, 32),
-      style: _customerStyle.copyWith(fontSize: isServed ? 20 : 13),
-      align: TextAlign.center,
+    final portrait = GameplayArt.instance.customerImage(
+      slot.definition.id,
+      slot.hasActiveOrder ? slot.patience.status : CustomerPatienceStatus.safe,
     );
+    if (portrait != null) {
+      canvas.save();
+      canvas.clipPath(
+        Path()..addOval(
+          Rect.fromCircle(center: avatarCenter, radius: avatarRadius),
+        ),
+      );
+      GameplayArt.drawContained(
+        canvas,
+        portrait,
+        Rect.fromCircle(center: avatarCenter, radius: avatarRadius),
+      );
+      canvas.restore();
+      if (isServed || isFailed) {
+        canvas.drawCircle(
+          avatarCenter,
+          avatarRadius,
+          Paint()
+            ..color = isServed
+                ? const Color(0x662C6B35)
+                : const Color(0x7793322A),
+        );
+      }
+    } else {
+      ShellCanvas.label(
+        canvas,
+        text: isServed
+            ? '✓'
+            : isFailed
+            ? '!'
+            : slot.definition.displayLabel,
+        position: Vector2(centerX, 32),
+        style: _customerStyle.copyWith(fontSize: isServed ? 20 : 13),
+        align: TextAlign.center,
+      );
+    }
 
     final orderRect = Rect.fromCenter(
-      center: Offset(centerX + 83, 29),
-      width: 148,
-      height: 38,
+      center: Offset(centerX + 84, 38),
+      width: 142,
+      height: 40,
     );
     ShellCanvas.panel(
       canvas,
@@ -143,8 +186,8 @@ class CustomerAreaComponent extends PositionComponent {
       CustomerPatienceStatus.expired => const Color(0xFFE46A35),
     };
     final barRect = Rect.fromCenter(
-      center: Offset(centerX, 81),
-      width: 108,
+      center: Offset(centerX + 68, 78),
+      width: 150,
       height: 8,
     );
     if (patience.status == CustomerPatienceStatus.danger) {
@@ -180,7 +223,7 @@ class CustomerAreaComponent extends PositionComponent {
     ShellCanvas.label(
       canvas,
       text: '${patience.remainingSeconds.ceil()} sn',
-      position: Vector2(centerX, 91),
+      position: Vector2(centerX + 68, 89),
       style: _hintStyle.copyWith(color: color, fontSize: 10),
       align: TextAlign.center,
     );
@@ -195,6 +238,15 @@ class CustomerAreaComponent extends PositionComponent {
   };
 
   void _drawOrderIcon(Canvas canvas, Offset center, CardType? type) {
+    final artwork = GameplayArt.instance.resultImage(type);
+    if (artwork != null) {
+      GameplayArt.drawContained(
+        canvas,
+        artwork,
+        Rect.fromCenter(center: center, width: 28, height: 28),
+      );
+      return;
+    }
     if (type == CardType.crispyFries) {
       for (final offset in const [Offset(-6, 0), Offset(0, -2), Offset(6, 0)]) {
         canvas.drawRRect(

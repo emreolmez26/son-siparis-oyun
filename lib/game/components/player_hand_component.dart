@@ -31,21 +31,22 @@ class PlayerHandComponent extends PositionComponent {
     ShellCanvas.panel(
       canvas,
       size.toRect(),
-      color: GameLayout.handColor,
-      borderColor: GameLayout.panelStrokeColor,
-      radius: 12,
+      color: const Color(0xFF2A1A14),
+      borderColor: const Color(0xFF70482D),
+      radius: 14,
+      borderWidth: 1.5,
     );
     ShellCanvas.label(
       canvas,
       text: 'OYUNCU ELİ',
       position: Vector2(20, 14),
-      style: _titleStyle,
+      style: _titleStyle.copyWith(color: const Color(0xFFF5D18D)),
     );
     ShellCanvas.label(
       canvas,
       text: 'Kartları mutfak masasına sürükleyin.',
       position: Vector2(20, 44),
-      style: _hintStyle,
+      style: _hintStyle.copyWith(color: const Color(0xFFD9BFA2)),
     );
   }
 }

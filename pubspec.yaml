@@ -61,6 +61,11 @@ flutter:
 
   assets:
     - assets/ui/backgrounds/main_menu_restaurant.png
+    - assets/ui/gameplay/customers/
+    - assets/ui/gameplay/ingredients/
+    - assets/ui/gameplay/equipment/
+    - assets/ui/gameplay/foods/
+    - assets/ui/gameplay/rivals/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -4,6 +4,7 @@ import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 
+import 'art/gameplay_art.dart';
 import 'components/customer_area_component.dart';
 import 'components/combo_feedback_component.dart';
 import 'components/countermeasure_card_component.dart';
@@ -275,6 +276,7 @@ class SonSiparisGame extends FlameGame {
   @override
   Future<void> onLoad() async {
     await super.onLoad();
+    unawaited(GameplayArt.instance.preload());
     camera.viewfinder
       ..anchor = Anchor.topLeft
       ..position = Vector2.zero();

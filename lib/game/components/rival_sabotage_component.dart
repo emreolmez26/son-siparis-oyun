@@ -1,6 +1,7 @@
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 
+import '../art/gameplay_art.dart';
 import '../game_layout.dart';
 import '../models/card_definition.dart';
 import '../models/sabotage.dart';
@@ -58,10 +59,19 @@ class RivalSabotageComponent extends PositionComponent {
       borderColor: const Color(0xFF9E4937),
       radius: 10,
     );
+    final badge = GameplayArt.instance.rivalBadge;
+    if (badge != null) {
+      GameplayArt.drawContained(
+        canvas,
+        badge,
+        const Rect.fromLTWH(888, 24, 40, 40),
+        padding: 1,
+      );
+    }
     ShellCanvas.label(
       canvas,
       text: RivalState.rivalName,
-      position: Vector2(bounds.left + 14, bounds.top + 9),
+      position: Vector2(bounds.left + 54, bounds.top + 9),
       style: const TextStyle(
         color: Color(0xFFFF8A65),
         fontSize: 12,
@@ -72,7 +82,7 @@ class RivalSabotageComponent extends PositionComponent {
       canvas,
       text:
           'BASKI  •  Engellenen ${rivalState.defendedCount}  Etki ${rivalState.affectedCount}',
-      position: Vector2(bounds.left + 14, bounds.top + 31),
+      position: Vector2(bounds.left + 54, bounds.top + 31),
       style: const TextStyle(
         color: GameLayout.mutedTextColor,
         fontSize: 10,
