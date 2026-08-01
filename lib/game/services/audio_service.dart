@@ -15,6 +15,10 @@ enum SoundEventId {
   orderFailed,
   buttonTap,
   shiftComplete,
+  sabotageWarning,
+  sabotageActivated,
+  sabotageCountered,
+  sabotageHit,
 }
 
 abstract interface class AudioService {

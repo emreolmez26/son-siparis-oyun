@@ -29,7 +29,10 @@ class TutorialState {
     required String equipmentCardId,
   }) {
     if (!isActive || currentStep != TutorialStep.cookPatty) return false;
-    if (inputCardId != 'patty_01' || equipmentCardId != 'pan_01') return false;
+    if (!(inputCardId == 'patty_01' || inputCardId.startsWith('raw_patty_')) ||
+        equipmentCardId != 'pan_01') {
+      return false;
+    }
     currentStep = TutorialStep.buildClassicBurger;
     return true;
   }
@@ -74,7 +77,7 @@ class TutorialState {
   bool allowsCard(CardDefinition definition) {
     if (!isActive) return true;
     return switch (currentStep) {
-      TutorialStep.cookPatty => definition.id == 'patty_01',
+      TutorialStep.cookPatty => definition.type == CardType.patty,
       TutorialStep.buildClassicBurger =>
         definition.type == CardType.bread ||
             definition.type == CardType.cookedPatty ||

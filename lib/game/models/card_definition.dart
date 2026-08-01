@@ -35,6 +35,15 @@ class CardDefinition {
   final int baseRewardCoins;
   final bool usesCheeseBonus;
 
+  CardDefinition copyWithId(String runtimeId) => CardDefinition(
+    id: runtimeId,
+    type: type,
+    displayName: displayName,
+    category: category,
+    baseRewardCoins: baseRewardCoins,
+    usesCheeseBonus: usesCheeseBonus,
+  );
+
   String get categoryLabel {
     return switch (category) {
       CardCategory.ingredient => 'MALZEME',

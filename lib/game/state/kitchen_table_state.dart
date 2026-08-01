@@ -35,6 +35,12 @@ class KitchenTableState {
         );
       }
       _definitions[definition.id] = definition;
+      if (definition.category == CardCategory.ingredient) {
+        _baseIngredientDefinitions[definition.id] = definition;
+      }
+      if (initialPosition != null) {
+        _initialHandPositions[definition.id] = initialPosition;
+      }
       _placements[definition.id] = CardPlacement(
         zone: equipmentPosition == null ? CardZone.hand : CardZone.kitchenTable,
         currentValidPosition: resolvedInitialPosition,
@@ -45,16 +51,71 @@ class KitchenTableState {
 
   final StackLayout _stackLayout;
   final Map<String, CardDefinition> _definitions = {};
+  final Map<String, CardDefinition> _baseIngredientDefinitions = {};
+  final Map<String, Offset> _initialHandPositions = {};
   final Map<String, CardPlacement> _placements = {};
   final Map<String, CardStack> _stacks = {};
   final Map<String, List<String>> _resultLineages = {};
   int _nextStackSequence = 1;
+  int _nextResultSequence = 1;
 
   int get cardCount => _definitions.length;
   int get stackCount => _stacks.length;
 
   Iterable<CardDefinition> get definitions => _definitions.values;
   Iterable<CardStack> get stacks => _stacks.values;
+  bool containsCard(String cardId) => _definitions.containsKey(cardId);
+
+  void spawnWorkingCard({
+    required CardDefinition definition,
+    required Offset dragPosition,
+  }) {
+    if (definition.category != CardCategory.ingredient ||
+        _definitions.containsKey(definition.id)) {
+      throw ArgumentError.value(
+        definition.id,
+        'definition',
+        'Working-card IDs must be unique ingredients.',
+      );
+    }
+    _definitions[definition.id] = definition;
+    _placements[definition.id] = CardPlacement(
+      zone: CardZone.dragging,
+      currentValidPosition: dragPosition,
+      lastValidPosition: dragPosition,
+    );
+  }
+
+  void updateSpawnedDragPosition(String cardId, Offset dragPosition) {
+    _ensureKnownCard(cardId);
+    final placement = placementFor(cardId);
+    if (placement.zone != CardZone.dragging) {
+      throw StateError('Only a newly spawned working card may be updated.');
+    }
+    _placements[cardId] = CardPlacement(
+      zone: CardZone.dragging,
+      currentValidPosition: dragPosition,
+      lastValidPosition: placement.lastValidPosition,
+    );
+  }
+
+  void removeSpawnedWorkingCard(String cardId) {
+    _ensureKnownCard(cardId);
+    if (placementFor(cardId).zone != CardZone.dragging) {
+      throw StateError('Only an unplaced spawned card may be removed.');
+    }
+    _definitions.remove(cardId);
+    _placements.remove(cardId);
+    _resultLineages.remove(cardId);
+  }
+
+  String nextResultRuntimeId(String resultDefinitionId) {
+    final baseId = resultDefinitionId.replaceFirst(RegExp(r'_01$'), '');
+    final id =
+        'result_${baseId}_${_nextResultSequence.toString().padLeft(4, '0')}';
+    _nextResultSequence++;
+    return id;
+  }
 
   List<String> sourceCardIdsForResult(String resultCardId) =>
       List.unmodifiable(_resultLineages[resultCardId] ?? const []);
@@ -271,16 +332,19 @@ class KitchenTableState {
   RecipeResolution? tryResolveRecipeStack({
     required String stackId,
     required RecipeDefinition recipe,
+    String? runtimeResultId,
   }) {
     final stack = _stacks[stackId];
-    final existingResultPlacement = _placements[recipe.resultInstanceId];
+    final resultCardId =
+        runtimeResultId ?? nextResultRuntimeId(recipe.resultDefinition.id);
+    final resultDefinition = recipe.resultDefinition.copyWithId(resultCardId);
+    final existingResultPlacement = _placements[resultCardId];
     if (stack == null ||
-        (_definitions.containsKey(recipe.resultInstanceId) &&
+        (_definitions.containsKey(resultCardId) &&
             (existingResultPlacement == null ||
                 (existingResultPlacement.zone != CardZone.served &&
                     existingResultPlacement.zone != CardZone.consumed))) ||
-        recipe.resultDefinition.id != recipe.resultInstanceId ||
-        recipe.resultDefinition.category != CardCategory.result ||
+        resultDefinition.category != CardCategory.result ||
         !_stackLayout.isFullyInsidePaddedTable(
           stack.basePosition,
           stack.cardIds.length,
@@ -315,21 +379,82 @@ class KitchenTableState {
         lastValidPosition: previousPlacement.lastValidPosition,
       );
     }
-    _definitions[recipe.resultInstanceId] = recipe.resultDefinition;
-    _placements[recipe.resultInstanceId] = CardPlacement(
+    _definitions[resultCardId] = resultDefinition;
+    _placements[resultCardId] = CardPlacement(
       zone: CardZone.kitchenTable,
       currentValidPosition: basePosition,
       lastValidPosition: basePosition,
     );
-    _resultLineages[recipe.resultInstanceId] = List.unmodifiable(sourceCardIds);
+    _resultLineages[resultCardId] = List.unmodifiable(sourceCardIds);
 
     return RecipeResolution(
       recipeId: recipe.id,
       sourceStackId: stack.id,
       sourceCardIds: sourceCardIds,
       basePosition: basePosition,
-      resultCardId: recipe.resultInstanceId,
+      resultCardId: resultCardId,
     );
+  }
+
+  String completeProcessedResultCard({
+    required String inputCardId,
+    required CardDefinition resultDefinition,
+    required Offset outputPosition,
+  }) {
+    _ensureKnownCard(inputCardId);
+    if (!isProcessing(inputCardId) ||
+        resultDefinition.category != CardCategory.result) {
+      throw StateError('Only a processing result input can complete.');
+    }
+    final runtimeBaseId = resultDefinition.type == CardType.crispyFries
+        ? 'crispy_fries_01'
+        : resultDefinition.id;
+    final resultCardId = nextResultRuntimeId(runtimeBaseId);
+    _definitions[resultCardId] = resultDefinition.copyWithId(resultCardId);
+    _placements[resultCardId] = CardPlacement(
+      zone: CardZone.kitchenTable,
+      currentValidPosition: outputPosition,
+      lastValidPosition: outputPosition,
+    );
+    _resultLineages[resultCardId] = List.unmodifiable([inputCardId]);
+    final inputPlacement = placementFor(inputCardId);
+    _placements[inputCardId] = CardPlacement(
+      zone: CardZone.consumed,
+      currentValidPosition: inputPlacement.currentValidPosition,
+      lastValidPosition: inputPlacement.lastValidPosition,
+    );
+    return resultCardId;
+  }
+
+  void resetWorkingCardsForNewShift({
+    required Iterable<CardDefinition> equipmentDefinitions,
+    required Map<String, Offset> equipmentTablePositions,
+  }) {
+    _stacks.clear();
+    _resultLineages.clear();
+    _nextStackSequence = 1;
+    _nextResultSequence = 1;
+    final equipmentIds = equipmentDefinitions
+        .map((definition) => definition.id)
+        .toSet();
+    _definitions.removeWhere((cardId, _) => !equipmentIds.contains(cardId));
+    _placements.removeWhere((cardId, _) => !equipmentIds.contains(cardId));
+    for (final definition in equipmentDefinitions) {
+      final position = equipmentTablePositions[definition.id];
+      if (position == null) {
+        throw ArgumentError.value(
+          definition.id,
+          'equipmentTablePositions',
+          'Missing equipment reset position.',
+        );
+      }
+      _definitions[definition.id] = definition;
+      _placements[definition.id] = CardPlacement(
+        zone: CardZone.kitchenTable,
+        currentValidPosition: position,
+        lastValidPosition: position,
+      );
+    }
   }
 
   bool canMarkCardServed(String cardId) {
@@ -348,30 +473,6 @@ class KitchenTableState {
       currentValidPosition: placement.currentValidPosition,
       lastValidPosition: placement.lastValidPosition,
     );
-  }
-
-  void recycleServedResultSources({
-    required String resultCardId,
-    required Map<String, CardDefinition> rawDefinitionsById,
-    required Map<String, Offset> handPositions,
-  }) {
-    _ensureKnownCard(resultCardId);
-    if (!isServed(resultCardId)) {
-      throw StateError('Only a served result can recycle its source cards.');
-    }
-    for (final sourceCardId in sourceCardIdsForResult(resultCardId)) {
-      final definition = rawDefinitionsById[sourceCardId];
-      final handPosition = handPositions[sourceCardId];
-      if (definition == null || handPosition == null) {
-        throw StateError('Missing raw reset data for $sourceCardId.');
-      }
-      _definitions[sourceCardId] = definition;
-      _placements[sourceCardId] = CardPlacement(
-        zone: CardZone.hand,
-        currentValidPosition: handPosition,
-        lastValidPosition: handPosition,
-      );
-    }
   }
 
   void resetPrototypeCardsForNextOrder({
@@ -414,6 +515,7 @@ class KitchenTableState {
   }) {
     _stacks.clear();
     _nextStackSequence = 1;
+    _nextResultSequence = 1;
     final baseCardIds = <String>{
       ...ingredientDefinitions.map((definition) => definition.id),
       ...equipmentDefinitions.map((definition) => definition.id),

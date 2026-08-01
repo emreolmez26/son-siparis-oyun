@@ -8,6 +8,8 @@ class ShiftResult {
     required this.shiftEarnings,
     required this.totalWalletCoins,
     required this.durationSeconds,
+    this.sabotagesDefended = 0,
+    this.sabotagesAffected = 0,
   });
 
   final int completedOrders;
@@ -16,6 +18,8 @@ class ShiftResult {
   final int shiftEarnings;
   final int totalWalletCoins;
   final double durationSeconds;
+  final int sabotagesDefended;
+  final int sabotagesAffected;
 
   ShiftGrade get grade {
     if (completedOrders >= 8 && missedOrders == 0) {

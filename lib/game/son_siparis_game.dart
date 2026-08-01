@@ -6,12 +6,14 @@ import 'package:flutter/material.dart';
 
 import 'components/customer_area_component.dart';
 import 'components/combo_feedback_component.dart';
+import 'components/countermeasure_card_component.dart';
 import 'components/game_card_component.dart';
 import 'components/hud_component.dart';
 import 'components/kitchen_table_component.dart';
 import 'components/last_second_feedback_component.dart';
 import 'components/main_menu_component.dart';
 import 'components/order_failure_feedback_component.dart';
+import 'components/pantry_supply_component.dart';
 import 'components/pause_overlay_component.dart';
 import 'components/player_hand_component.dart';
 import 'components/processing_indicator_component.dart';
@@ -20,6 +22,7 @@ import 'components/recipe_button_component.dart';
 import 'components/recipe_book_component.dart';
 import 'components/recipe_feedback_component.dart';
 import 'components/recipe_preview_component.dart';
+import 'components/rival_sabotage_component.dart';
 import 'components/service_counter_component.dart';
 import 'components/service_feedback_component.dart';
 import 'components/service_preview_component.dart';
@@ -40,11 +43,13 @@ import 'kitchen_grid.dart';
 import 'models/app_screen.dart';
 import 'models/card_definition.dart';
 import 'models/card_drag_snapshot.dart';
+import 'models/card_zone.dart';
 import 'models/game_settings.dart';
 import 'models/customer_slot_state.dart';
 import 'models/processing_job.dart';
 import 'models/recipe_definition.dart';
 import 'models/recipe_resolution.dart';
+import 'models/sabotage.dart';
 import 'models/save_data.dart';
 import 'models/shift_phase.dart';
 import 'models/shift_moment.dart';
@@ -55,9 +60,11 @@ import 'state/feedback_state.dart';
 import 'state/game_flow_controller.dart';
 import 'state/kitchen_table_state.dart';
 import 'state/order_system.dart';
+import 'state/pantry_supply_state.dart';
 import 'state/run_progression_state.dart';
 import 'state/shift_state.dart';
 import 'state/recipe_discovery_state.dart';
+import 'state/rival_state.dart';
 import 'state/shift_moment_tracker.dart';
 import 'state/tutorial_state.dart';
 import 'state/upgrade_state.dart';
@@ -77,8 +84,10 @@ class SonSiparisGame extends FlameGame {
     SaveService? saveService,
     AudioService? audioService,
     HapticService? hapticService,
+    int? sabotageTestSeed,
   }) : _initialSaveData = initialSaveData ?? SaveData(),
        _saveService = saveService,
+       _sabotageTestSeed = sabotageTestSeed,
        super(
          camera: CameraComponent.withFixedResolution(
            width: GameLayout.designWidth,
@@ -92,6 +101,7 @@ class SonSiparisGame extends FlameGame {
 
   final SaveData _initialSaveData;
   final SaveService? _saveService;
+  final int? _sabotageTestSeed;
   late final GameSettings settings;
   late final AudioService audio;
   late final HapticService haptics;
@@ -141,6 +151,7 @@ class SonSiparisGame extends FlameGame {
     initiallyDiscovered: _initialSaveData.discoveredRecipeIds,
   );
   late final ShiftMomentTracker _shiftMomentTracker = ShiftMomentTracker();
+  late final RivalState _rivalState = RivalState();
   late final OrderSystem _orderSystem = OrderSystem(
     customerDefinitions: prototypeCustomerDefinitions,
   );
@@ -148,8 +159,12 @@ class SonSiparisGame extends FlameGame {
       EquipmentProcessingState(
         processingDurationSeconds: GameLayout.processingDurationSeconds,
       );
+  late final PantrySupplyState _pantryState = PantrySupplyState(
+    definitions: prototypeCycleIngredientDefinitions,
+    positions: GameLayout.initialHandCardPositions,
+  );
   late final KitchenTableState _tableState = KitchenTableState(
-    definitions: prototypeCardDefinitions,
+    definitions: prototypeEquipmentDefinitions,
     initialHandPositions: GameLayout.initialHandCardPositions,
     initialEquipmentTablePositions: GameLayout.initialEquipmentTablePositions,
     stackLayout: _stackLayout,
@@ -180,8 +195,11 @@ class SonSiparisGame extends FlameGame {
       LastSecondFeedbackState();
 
   final Map<String, GameCardComponent> _cardComponents = {};
+  final Map<String, PantrySupplyComponent> _pantryComponents = {};
   String? _activeCardId;
   CardDragSnapshot? _activeDragSnapshot;
+  bool _activeCardSpawnedFromPantry = false;
+  String? _activeSupplyId;
   bool _hasPendingPatienceBonus = false;
 
   ShiftState get shiftState => _shiftState;
@@ -189,9 +207,11 @@ class SonSiparisGame extends FlameGame {
   OrderSystem get orderSystem => _orderSystem;
   EquipmentProcessingState get processingState => _processingState;
   KitchenTableState get tableState => _tableState;
+  PantrySupplyState get pantryState => _pantryState;
   TutorialState get tutorialState => _tutorialState;
   RecipeDiscoveryState get recipeDiscoveryState => _recipeDiscoveryState;
   ShiftMomentTracker get shiftMomentTracker => _shiftMomentTracker;
+  RivalState get rivalState => _rivalState;
   ShiftMoment? get selectedShiftMoment => _shiftMomentTracker.selectMoment();
   bool get isGameplayInputAllowed =>
       _flow.isGameplayActive && _shiftState.isGameplayInputAllowed;
@@ -227,6 +247,16 @@ class SonSiparisGame extends FlameGame {
       _failureFeedback,
       _comboFeedback,
       LastSecondFeedbackComponent(state: _lastSecondFeedbackState),
+      RivalSabotageComponent(
+        rivalState: _rivalState,
+        positionForCard: (cardId) =>
+            _tableState.placementFor(cardId).currentValidPosition,
+      ),
+      CountermeasureCardComponent(
+        rivalState: _rivalState,
+        canInteract: () => isGameplayInputAllowed,
+        onReleased: _handleCountermeasureReleased,
+      ),
       ProcessingIndicatorComponent(
         jobsProvider: () => _processingState.activeJobs,
         positionForCard: (cardId) =>
@@ -282,6 +312,23 @@ class SonSiparisGame extends FlameGame {
         onSkip: _skipTutorial,
       ),
     ]);
+    for (final slot in _pantryState.slots) {
+      final component = PantrySupplyComponent(
+        supplyId: slot.id,
+        pantryState: _pantryState,
+        isShowing: () => _flow.screen == AppScreen.gameplay,
+        canInteract: () =>
+            isGameplayInputAllowed &&
+            _tutorialState.allowsCard(slot.definition),
+        onSpawnStarted: _handleSupplySpawnStarted,
+        onSpawnPositionChanged: _handleSupplySpawnPositionChanged,
+        onSpawnReleased: _handleSupplySpawnReleased,
+        onSpawnFinished: _handleSupplySpawnFinished,
+        onSpawnCancelled: _handleSupplySpawnCancelled,
+      );
+      _pantryComponents[slot.id] = component;
+      world.add(component);
+    }
     _syncCardComponentsFromState();
   }
 
@@ -295,10 +342,66 @@ class SonSiparisGame extends FlameGame {
     }
     _activeCardId = cardId;
     _activeDragSnapshot = _tableState.beginCardDrag(cardId);
+    _activeCardSpawnedFromPantry = false;
+    _activeSupplyId = null;
     _syncCardComponentsFromState();
     _hideInteractionPreviews();
     audio.play(SoundEventId.cardPickUp);
     return true;
+  }
+
+  String? _handleSupplySpawnStarted(String supplyId) {
+    final slot = _pantryState.slotFor(supplyId);
+    if (!isGameplayInputAllowed ||
+        !_tutorialState.allowsCard(slot.definition)) {
+      return null;
+    }
+    final workingDefinition = _pantryState.takeWorkingDefinition(supplyId);
+    if (workingDefinition == null) return null;
+    _tableState.spawnWorkingCard(
+      definition: workingDefinition,
+      dragPosition: slot.position,
+    );
+    _activeCardId = workingDefinition.id;
+    _activeDragSnapshot = null;
+    _activeCardSpawnedFromPantry = true;
+    _activeSupplyId = supplyId;
+    _hideInteractionPreviews();
+    audio.play(SoundEventId.cardPickUp);
+    return workingDefinition.id;
+  }
+
+  void _handleSupplySpawnPositionChanged(
+    String workingCardId,
+    Vector2 position,
+  ) {
+    if (_activeCardId != workingCardId ||
+        !_tableState.containsCard(workingCardId)) {
+      return;
+    }
+    _tableState.updateSpawnedDragPosition(
+      workingCardId,
+      Offset(position.x, position.y),
+    );
+    _updateDragFeedback(workingCardId, position);
+  }
+
+  void _handleSupplySpawnReleased(String workingCardId, Vector2 position) {
+    if (_activeCardId != workingCardId) return;
+    _handleDragReleased(workingCardId, position);
+  }
+
+  void _handleSupplySpawnFinished(String workingCardId) {
+    if (_activeCardId != workingCardId) return;
+    _activeCardId = null;
+    _activeDragSnapshot = null;
+    _activeCardSpawnedFromPantry = false;
+    _activeSupplyId = null;
+    _hideInteractionPreviews();
+  }
+
+  void _handleSupplySpawnCancelled(String workingCardId) {
+    if (_activeCardId == workingCardId) _cancelActiveDrag();
   }
 
   void _updateDragFeedback(String cardId, Vector2 cardPosition) {
@@ -372,12 +475,21 @@ class SonSiparisGame extends FlameGame {
 
   Vector2 _handleDragReleased(String cardId, Vector2 cardPosition) {
     if (_activeCardId != cardId || !isGameplayInputAllowed) {
-      return _toVector2(_tableState.placementFor(cardId).currentValidPosition);
+      return _releasedCardPosition(cardId);
     }
 
     RecipeResolution? recipeResolution;
     final serviceTarget = _resolveServiceTarget(cardId, cardPosition);
-    if (serviceTarget != null) {
+    if (_isFakeOrderServiceDrop(cardId, cardPosition)) {
+      _restoreActiveDragSnapshot(cardId);
+      _shiftState.resetCombo();
+      if (_rivalState.triggerFakeOrderPenalty()) {
+        _comboMilestones.record(0);
+        _hud.triggerComboPulse();
+        audio.play(SoundEventId.sabotageHit);
+        haptics.trigger(HapticEvent.sabotageHit);
+      }
+    } else if (serviceTarget != null) {
       final definition = _tableState.definitionFor(cardId);
       final rewardCoins = _flow.progression.upgrades.effectiveRewardFor(
         definition,
@@ -393,11 +505,6 @@ class SonSiparisGame extends FlameGame {
         _restoreActiveDragSnapshot(cardId);
       } else {
         _cardComponents[cardId]?.triggerValidDrop();
-        _tableState.recycleServedResultSources(
-          resultCardId: cardId,
-          rawDefinitionsById: prototypeRawDefinitionsById,
-          handPositions: GameLayout.initialHandCardPositions,
-        );
         _flow.progression.addWalletCoins(completion.rewardCoins);
         _persist();
         _shiftMomentTracker.recordSuccessfulService(
@@ -485,9 +592,22 @@ class SonSiparisGame extends FlameGame {
             Offset(cardPosition.x, cardPosition.y),
           );
           if (snappedPosition != null) {
-            _tableState.commitKitchenTablePlacement(cardId, snappedPosition);
-            _cardComponents[cardId]?.triggerValidDrop();
-            haptics.trigger(HapticEvent.cardSnap);
+            final category = _tableState.definitionFor(cardId).category;
+            final finalPosition = category == CardCategory.equipment
+                ? snappedPosition
+                : _rivalState.greasySlideDestination(
+                    droppedPosition: snappedPosition,
+                    cardSize: GameLayout.cardSize,
+                    tableBounds: GameLayout.kitchenTableBounds,
+                    gridSpacing: GameLayout.kitchenGridSpacing,
+                  );
+            if (finalPosition == null) {
+              _restoreActiveDragSnapshot(cardId);
+            } else {
+              _tableState.commitKitchenTablePlacement(cardId, finalPosition);
+              _cardComponents[cardId]?.triggerValidDrop();
+              haptics.trigger(HapticEvent.cardSnap);
+            }
           } else {
             _restoreActiveDragSnapshot(cardId);
           }
@@ -515,7 +635,18 @@ class SonSiparisGame extends FlameGame {
     }
     audio.play(SoundEventId.cardDrop);
     _hideInteractionPreviews();
-    return _toVector2(_tableState.placementFor(cardId).currentValidPosition);
+    return _releasedCardPosition(cardId);
+  }
+
+  Vector2 _releasedCardPosition(String cardId) {
+    if (_tableState.containsCard(cardId)) {
+      return _toVector2(_tableState.placementFor(cardId).currentValidPosition);
+    }
+    final supplyId = _activeSupplyId;
+    if (supplyId != null) {
+      return _toVector2(_pantryState.slotFor(supplyId).position);
+    }
+    return Vector2.zero();
   }
 
   @override
@@ -529,14 +660,35 @@ class SonSiparisGame extends FlameGame {
   }
 
   void _advanceActiveGameplay(double dt) {
+    _pantryState.advance(dt);
     _tutorialState.advance(dt);
     if (_shiftState.advanceActiveTime(dt)) {
       _endShift();
       return;
     }
+    final priorSabotage = _rivalState.current;
+    _rivalState.advance(dt, canAdvance: !_tutorialState.isActive);
+    final currentSabotage = _rivalState.current;
+    if (priorSabotage?.event.id != currentSabotage?.event.id &&
+        currentSabotage?.phase == SabotagePhase.warning) {
+      audio.play(SoundEventId.sabotageWarning);
+      haptics.trigger(HapticEvent.sabotageWarning);
+    } else if (priorSabotage?.phase == SabotagePhase.warning &&
+        currentSabotage?.phase == SabotagePhase.active) {
+      audio.play(SoundEventId.sabotageActivated);
+    }
+    final pausedEquipmentIds = <String>{
+      if (_rivalState.isPowerOutageActive) ...const [
+        'pan_01',
+        'knife_01',
+        'fryer_01',
+      ],
+      if (_rivalState.jammedEquipmentId case final jammed?) jammed,
+    };
     for (final completedJob in _processingState.advanceForShift(
       deltaSeconds: dt,
       shiftPhase: _shiftState.phase,
+      pausedEquipmentIds: pausedEquipmentIds,
     )) {
       _completeProcessing(completedJob);
     }
@@ -565,19 +717,25 @@ class SonSiparisGame extends FlameGame {
     final equipmentPosition = _tableState
         .placementFor(completedJob.equipmentCardId)
         .currentValidPosition;
-    _tableState.completeProcessedCard(
-      cardId: completedJob.inputCardId,
-      completedDefinition: definition.outputDefinition,
-      outputPosition: _processingOutputResolver.resolve(equipmentPosition),
-    );
+    final outputPosition = _processingOutputResolver.resolve(equipmentPosition);
+    String resultPopCardId = completedJob.inputCardId;
     if (definition.outputDefinition.type == CardType.crispyFries) {
-      _tableState.recordResultLineage(
-        resultCardId: completedJob.inputCardId,
-        sourceCardIds: [completedJob.inputCardId],
+      resultPopCardId = _tableState.completeProcessedResultCard(
+        inputCardId: completedJob.inputCardId,
+        resultDefinition: definition.outputDefinition,
+        outputPosition: outputPosition,
       );
       if (_recipeDiscoveryState.discover('crispy_fries')) _persist();
+    } else {
+      _tableState.completeProcessedCard(
+        cardId: completedJob.inputCardId,
+        completedDefinition: definition.outputDefinition.copyWithId(
+          completedJob.inputCardId,
+        ),
+        outputPosition: outputPosition,
+      );
     }
-    _cardComponents[completedJob.inputCardId]?.triggerResultPop();
+    _syncCardComponentsFromState(resultPopCardId: resultPopCardId);
     audio.play(SoundEventId.equipmentComplete);
     haptics.trigger(HapticEvent.processingComplete);
   }
@@ -607,11 +765,16 @@ class SonSiparisGame extends FlameGame {
   void _endShift() {
     _cancelActiveDrag();
     _processingState.clearActiveJob();
+    _rivalState.endShift();
     _resetPreparationState();
     _orderSystem.closeActiveOrder();
     _tutorialState.finishFirstShiftSafely();
     _orderSystem.clearTutorialPatienceProtection();
     _hasPendingPatienceBonus = false;
+    _shiftState.setSabotageSummary(
+      defended: _rivalState.defendedCount,
+      affected: _rivalState.affectedCount,
+    );
     _shiftState.endShift();
     _flow.showResults();
     _persist();
@@ -653,6 +816,11 @@ class SonSiparisGame extends FlameGame {
     _hasPendingPatienceBonus = false;
     _shiftState.walletCoins = _flow.progression.walletCoins;
     _shiftState.startNewShift();
+    _rivalState.startShift(
+      day: _flow.progression.currentDay,
+      tutorialReplay: tutorialFirstOrder,
+      testSeed: _sabotageTestSeed,
+    );
     _shiftMomentTracker.startShift(day: _flow.progression.currentDay);
     _hideInteractionPreviews();
     _syncCardComponentsFromState();
@@ -660,20 +828,22 @@ class SonSiparisGame extends FlameGame {
 
   void _resetPreparationState() {
     _processingState.clearActiveJob();
-    _tableState.resetPrototypePreparationState(
-      ingredientDefinitions: prototypeCycleIngredientDefinitions,
-      handPositions: GameLayout.initialHandCardPositions,
+    _rivalState.clearTemporaryState();
+    _tableState.resetWorkingCardsForNewShift(
       equipmentDefinitions: prototypeEquipmentDefinitions,
       equipmentTablePositions: GameLayout.initialEquipmentTablePositions,
-      resultCardIds: const [
-        'classic_burger_01',
-        'deluxe_burger_01',
-        'spicy_burger_01',
-      ],
     );
+    _pantryState.resetForShift();
   }
 
   void _restoreActiveDragSnapshot(String cardId) {
+    if (_activeCardSpawnedFromPantry) {
+      if (_tableState.containsCard(cardId)) {
+        _tableState.removeSpawnedWorkingCard(cardId);
+      }
+      audio.play(SoundEventId.invalidDrop);
+      return;
+    }
     final snapshot = _activeDragSnapshot;
     if (snapshot == null || snapshot.cardId != cardId) {
       throw StateError('Missing drag snapshot for $cardId.');
@@ -686,12 +856,23 @@ class SonSiparisGame extends FlameGame {
   void _cancelActiveDrag() {
     final cardId = _activeCardId;
     final snapshot = _activeDragSnapshot;
-    if (cardId != null && snapshot != null && snapshot.cardId == cardId) {
+    if (cardId != null && _activeCardSpawnedFromPantry) {
+      if (_tableState.containsCard(cardId) &&
+          _tableState.placementFor(cardId).zone == CardZone.dragging) {
+        _tableState.removeSpawnedWorkingCard(cardId);
+      }
+      final supplyId = _activeSupplyId;
+      if (supplyId != null) _pantryComponents[supplyId]?.cancelActiveSpawn();
+    } else if (cardId != null &&
+        snapshot != null &&
+        snapshot.cardId == cardId) {
       _tableState.restoreCardDragSnapshot(snapshot);
       _cardComponents[cardId]?.cancelActiveDrag();
     }
     _activeCardId = null;
     _activeDragSnapshot = null;
+    _activeCardSpawnedFromPantry = false;
+    _activeSupplyId = null;
     _hideInteractionPreviews();
   }
 
@@ -773,23 +954,41 @@ class SonSiparisGame extends FlameGame {
 
   List<Rect> _tutorialSourceBounds() {
     if (!_tutorialState.isActive) return const [];
-    final ids = switch (_tutorialState.currentStep) {
-      TutorialStep.cookPatty => const ['patty_01'],
-      TutorialStep.buildClassicBurger => const [
-        'bread_01',
-        'patty_01',
-        'cheese_01',
-      ],
-      TutorialStep.serveClassicBurger => const ['classic_burger_01'],
-    };
-    return ids
-        .where((id) => _tableState.tableCardIdsInRenderOrder.contains(id))
-        .map(
-          (id) =>
-              _cardBoundsAt(_tableState.placementFor(id).currentValidPosition),
-        )
-        .toList(growable: false);
+    switch (_tutorialState.currentStep) {
+      case TutorialStep.cookPatty:
+        return [_pantryBounds('patty_01')];
+      case TutorialStep.buildClassicBurger:
+        return [
+          _pantryBounds('bread_01'),
+          _pantryBounds('cheese_01'),
+          ..._tableState.tableCardIdsInRenderOrder
+              .where(
+                (id) =>
+                    _tableState.definitionFor(id).type == CardType.cookedPatty,
+              )
+              .map(
+                (id) => _cardBoundsAt(
+                  _tableState.placementFor(id).currentValidPosition,
+                ),
+              ),
+        ];
+      case TutorialStep.serveClassicBurger:
+        return _tableState.tableCardIdsInRenderOrder
+            .where(
+              (id) =>
+                  _tableState.definitionFor(id).type == CardType.classicBurger,
+            )
+            .map(
+              (id) => _cardBoundsAt(
+                _tableState.placementFor(id).currentValidPosition,
+              ),
+            )
+            .toList(growable: false);
+    }
   }
+
+  Rect _pantryBounds(String supplyId) =>
+      _cardBoundsAt(_pantryState.slotFor(supplyId).position);
 
   Rect? _tutorialTargetBounds() {
     if (!_tutorialState.isActive) return null;
@@ -805,12 +1004,24 @@ class SonSiparisGame extends FlameGame {
   EquipmentTarget? _resolveEquipmentTarget(
     String cardId,
     Vector2 cardPosition,
-  ) => _equipmentTargetResolver.resolveTarget(
-    draggedCardId: cardId,
-    draggedCardPosition: Offset(cardPosition.x, cardPosition.y),
-    tableState: _tableState,
-    processingState: _processingState,
-  );
+  ) {
+    final target = _equipmentTargetResolver.resolveTarget(
+      draggedCardId: cardId,
+      draggedCardPosition: Offset(cardPosition.x, cardPosition.y),
+      tableState: _tableState,
+      processingState: _processingState,
+    );
+    if (target == null) return null;
+    final disrupted =
+        _rivalState.isPowerOutageActive ||
+        _rivalState.jammedEquipmentId == target.equipmentCardId;
+    return EquipmentTarget(
+      equipmentCardId: target.equipmentCardId,
+      bounds: target.bounds,
+      isAvailable: target.isAvailable && !disrupted,
+      processingDefinition: target.processingDefinition,
+    );
+  }
 
   Offset _processingAttachmentPosition(String equipmentCardId) {
     final equipmentPosition = _tableState
@@ -830,6 +1041,8 @@ class SonSiparisGame extends FlameGame {
     if (_activeCardId == cardId) {
       _activeCardId = null;
       _activeDragSnapshot = null;
+      _activeCardSpawnedFromPantry = false;
+      _activeSupplyId = null;
       _hideInteractionPreviews();
     }
   }
@@ -848,6 +1061,47 @@ class SonSiparisGame extends FlameGame {
         tableState: _tableState,
         orderSystem: _orderSystem,
       );
+
+  bool _isFakeOrderServiceDrop(String cardId, Vector2 cardPosition) {
+    if (!_rivalState.fakeOrderActive ||
+        _tableState.definitionFor(cardId).category != CardCategory.result ||
+        _tableState.definitionFor(cardId).type != _rivalState.fakeOrderType) {
+      return false;
+    }
+    final center = Offset(
+      cardPosition.x + (GameLayout.cardWidth / 2),
+      cardPosition.y + (GameLayout.cardHeight / 2),
+    );
+    return GameLayout.serviceCounterBounds.contains(center);
+  }
+
+  bool _handleCountermeasureReleased(String runtimeId, Vector2 center) {
+    if (!isGameplayInputAllowed) return false;
+    final active = _rivalState.current;
+    if (active == null || active.countermeasureId != runtimeId) return false;
+    final point = Offset(center.x, center.y);
+    final targetBounds = switch (active.event.type) {
+      SabotageType.powerSurge => RivalState.fuseBoxBounds,
+      SabotageType.equipmentJam =>
+        active.event.targetEquipmentId == null
+            ? null
+            : _cardBoundsAt(
+                _tableState
+                    .placementFor(active.event.targetEquipmentId!)
+                    .currentValidPosition,
+              ),
+      SabotageType.greasyTable => active.event.greasyRegion,
+      SabotageType.fakeOrder => RivalState.fakeTicketBounds,
+    };
+    if (targetBounds == null || !targetBounds.inflate(10).contains(point)) {
+      audio.play(SoundEventId.invalidDrop);
+      return false;
+    }
+    if (!_rivalState.tryCounter(runtimeId)) return false;
+    audio.play(SoundEventId.sabotageCountered);
+    haptics.trigger(HapticEvent.sabotageCountered);
+    return true;
+  }
 
   bool _isWrongServiceDrop(String cardId, Vector2 cardPosition) {
     if (_tableState.definitionFor(cardId).category != CardCategory.result) {
@@ -868,7 +1122,13 @@ class SonSiparisGame extends FlameGame {
     );
     return recipe == null
         ? null
-        : _tableState.tryResolveRecipeStack(stackId: stack.id, recipe: recipe);
+        : _tableState.tryResolveRecipeStack(
+            stackId: stack.id,
+            recipe: recipe,
+            runtimeResultId: _tableState.nextResultRuntimeId(
+              recipe.resultDefinition.id,
+            ),
+          );
   }
 
   RecipeDefinition? _recipeForTarget(

@@ -90,7 +90,7 @@ class ShiftResultsComponent extends PositionComponent with TapCallbacks {
       _panelBounds.left + 34,
       _panelBounds.top + 138,
       _panelBounds.width - 68,
-      200,
+      234,
     );
     ShellCanvas.panel(
       canvas,
@@ -109,7 +109,7 @@ class ShiftResultsComponent extends PositionComponent with TapCallbacks {
     _drawStat(
       canvas,
       statsBounds,
-      53,
+      48,
       'Kaçırılan Siparişler',
       '${result.missedOrders}',
       valueColor: const Color(0xFFE47A60),
@@ -117,14 +117,14 @@ class ShiftResultsComponent extends PositionComponent with TapCallbacks {
     _drawStat(
       canvas,
       statsBounds,
-      86,
+      76,
       'En Yüksek Kombo',
       'x${result.highestCombo}',
     );
     _drawStat(
       canvas,
       statsBounds,
-      119,
+      104,
       'Kazanılan Para',
       '+${result.shiftEarnings}',
       valueColor: GameLayout.accentColor,
@@ -132,7 +132,7 @@ class ShiftResultsComponent extends PositionComponent with TapCallbacks {
     _drawStat(
       canvas,
       statsBounds,
-      152,
+      132,
       'Toplam Para',
       '${result.totalWalletCoins}',
       valueColor: GameLayout.accentColor,
@@ -140,9 +140,25 @@ class ShiftResultsComponent extends PositionComponent with TapCallbacks {
     _drawStat(
       canvas,
       statsBounds,
-      185,
+      160,
       'Vardiya Süresi',
       ShiftState.formatDuration(result.durationSeconds),
+    );
+    _drawStat(
+      canvas,
+      statsBounds,
+      188,
+      'Sabotaj Engellendi',
+      '${result.sabotagesDefended}',
+      valueColor: GameLayout.successColor,
+    );
+    _drawStat(
+      canvas,
+      statsBounds,
+      216,
+      'Sabotaj Etkisi',
+      '${result.sabotagesAffected}',
+      valueColor: const Color(0xFFE47A60),
     );
 
     ShellCanvas.panel(

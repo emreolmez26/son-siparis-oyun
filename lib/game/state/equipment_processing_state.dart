@@ -138,7 +138,10 @@ class EquipmentProcessingState {
   );
 
   /// Advances all active jobs and returns every job completed this frame.
-  List<ProcessingJob> advanceAll(double deltaSeconds) {
+  List<ProcessingJob> advanceAll(
+    double deltaSeconds, {
+    Set<String> pausedEquipmentIds = const {},
+  }) {
     if (deltaSeconds <= 0 || _activeJobsByEquipment.isEmpty) {
       return const [];
     }
@@ -146,6 +149,7 @@ class EquipmentProcessingState {
     final completed = <ProcessingJob>[];
     final entries = _activeJobsByEquipment.entries.toList();
     for (final entry in entries) {
+      if (pausedEquipmentIds.contains(entry.key)) continue;
       final activeJob = entry.value;
       final elapsedSeconds = (activeJob.elapsedSeconds + deltaSeconds)
           .clamp(0.0, activeJob.totalDurationSeconds)
@@ -170,7 +174,10 @@ class EquipmentProcessingState {
   List<ProcessingJob> advanceForShift({
     required double deltaSeconds,
     required ShiftPhase shiftPhase,
-  }) => shiftPhase == ShiftPhase.active ? advanceAll(deltaSeconds) : const [];
+    Set<String> pausedEquipmentIds = const {},
+  }) => shiftPhase == ShiftPhase.active
+      ? advanceAll(deltaSeconds, pausedEquipmentIds: pausedEquipmentIds)
+      : const [];
 
   /// Compatibility helper for the original one-job tests.
   ProcessingJob? advance(double deltaSeconds) {

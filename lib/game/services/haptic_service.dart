@@ -7,6 +7,9 @@ enum HapticEvent {
   recipeComplete,
   service,
   lastSecond,
+  sabotageWarning,
+  sabotageCountered,
+  sabotageHit,
 }
 
 abstract interface class HapticService {
@@ -32,10 +35,13 @@ class PlatformHapticService implements HapticService {
     switch (event) {
       case HapticEvent.cardSnap:
       case HapticEvent.processingComplete:
+      case HapticEvent.sabotageWarning:
         HapticFeedback.lightImpact();
         return;
       case HapticEvent.recipeComplete:
       case HapticEvent.service:
+      case HapticEvent.sabotageCountered:
+      case HapticEvent.sabotageHit:
         HapticFeedback.mediumImpact();
         return;
       case HapticEvent.lastSecond:

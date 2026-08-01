@@ -208,14 +208,6 @@ OrderSystem ordersWithSingleRequestedResult(CardType requestedResultType) {
   return orderSystem;
 }
 
-void recycleServedResult(TestKitchen kitchen, String resultCardId) {
-  kitchen.table.recycleServedResultSources(
-    resultCardId: resultCardId,
-    rawDefinitionsById: prototypeRawDefinitionsById,
-    handPositions: GameLayout.initialHandCardPositions,
-  );
-}
-
 void main() {
   testWidgets('Son Sipariş app can be created', (tester) async {
     await tester.pumpWidget(const SonSiparisApp());
@@ -251,6 +243,15 @@ void main() {
         await gesture.up();
       }
 
+      Offset supplyCenter(String supplyId) => screenPosition(
+        game.pantryState.slotFor(supplyId).position + const Offset(52, 39),
+      );
+      List<String> activeOfType(CardType type) => game
+          .tableState
+          .tableCardIdsInRenderOrder
+          .where((id) => game.tableState.definitionFor(id).type == type)
+          .toList();
+
       await tester.pumpWidget(SonSiparisApp(game: game));
       await tester.pump(const Duration(milliseconds: 100));
       await tester.tapAt(screenPosition(const Offset(640, 506)));
@@ -271,19 +272,21 @@ void main() {
         expect(card.isInteractionLocked, isFalse);
       }
 
-      final breadHand = screenPosition(const Offset(356, 648));
+      final breadHand = supplyCenter('bread_01');
       final breadTable = screenPosition(const Offset(312, 280));
       final invalidBreadTarget = screenPosition(const Offset(640, 632));
       await dragAcrossFrames(breadHand, invalidBreadTarget);
       await tester.pump(const Duration(milliseconds: 100));
-      expect(game.tableState.isInHand('bread_01'), isTrue);
+      expect(activeOfType(CardType.bread), isEmpty);
+      expect(game.pantryState.isAvailable('bread_01'), isTrue);
 
       await dragAcrossFrames(breadHand, breadTable);
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(game.tableState.isOnKitchenTable('bread_01'), isTrue);
+      final breadId = activeOfType(CardType.bread).single;
+      expect(game.tableState.isOnKitchenTable(breadId), isTrue);
       final firstBreadPosition = game.tableState
-          .placementFor('bread_01')
+          .placementFor(breadId)
           .currentValidPosition;
       final breadPlacedCenter = screenPosition(
         firstBreadPosition + const Offset(52, 39),
@@ -291,20 +294,20 @@ void main() {
       final movedBreadTable = screenPosition(const Offset(584, 420));
       await dragAcrossFrames(breadPlacedCenter, movedBreadTable);
       await tester.pump(const Duration(milliseconds: 100));
-      expect(game.tableState.isOnKitchenTable('bread_01'), isTrue);
+      expect(game.tableState.isOnKitchenTable(breadId), isTrue);
       expect(
-        game.tableState.placementFor('bread_01').currentValidPosition,
+        game.tableState.placementFor(breadId).currentValidPosition,
         isNot(firstBreadPosition),
       );
 
       await tester.tapAt(screenPosition(const Offset(1219, 45)));
       await tester.pump(const Duration(milliseconds: 100));
       expect(game.shiftState.phase, ShiftPhase.paused);
-      final pattyHand = screenPosition(const Offset(470, 648));
+      final pattyHand = supplyCenter('patty_01');
       final pattyTable = screenPosition(const Offset(520, 360));
       await dragAcrossFrames(pattyHand, pattyTable);
       await tester.pump(const Duration(milliseconds: 100));
-      expect(game.tableState.isInHand('patty_01'), isTrue);
+      expect(activeOfType(CardType.patty), isEmpty);
 
       await tester.tapAt(screenPosition(const Offset(640, 410)));
       await tester.pump(const Duration(milliseconds: 100));
@@ -312,7 +315,8 @@ void main() {
       expect(game.isGameplayInputAllowed, isTrue);
       await dragAcrossFrames(pattyHand, pattyTable);
       await tester.pump(const Duration(milliseconds: 100));
-      expect(game.tableState.isOnKitchenTable('patty_01'), isTrue);
+      final pattyId = activeOfType(CardType.patty).single;
+      expect(game.tableState.isOnKitchenTable(pattyId), isTrue);
 
       game.update(GameLayout.shiftDurationSeconds);
       await tester.pump(const Duration(milliseconds: 100));
@@ -326,7 +330,7 @@ void main() {
       );
       await dragAcrossFrames(breadHand, breadTable);
       await tester.pump(const Duration(milliseconds: 100));
-      expect(game.tableState.isInHand('bread_01'), isTrue);
+      expect(activeOfType(CardType.bread), isEmpty);
 
       await tester.tapAt(screenPosition(const Offset(640, 572)));
       await tester.pump(const Duration(milliseconds: 100));
@@ -350,7 +354,7 @@ void main() {
 
       await dragAcrossFrames(breadHand, breadTable);
       await tester.pump(const Duration(milliseconds: 100));
-      expect(game.tableState.isOnKitchenTable('bread_01'), isTrue);
+      expect(activeOfType(CardType.bread), hasLength(1));
     },
   );
 
@@ -474,7 +478,7 @@ void main() {
     () {
       final classic = TestKitchen();
       final classicResult = classic.makeClassicResult();
-      expect(classicResult, 'classic_burger_01');
+      expect(classicResult, startsWith('result_classic_burger_'));
       expect(classic.table.sourceCardIdsForResult(classicResult), [
         'bread_01',
         'patty_01',
@@ -483,7 +487,7 @@ void main() {
 
       final deluxe = TestKitchen();
       final deluxeResult = deluxe.makeDeluxeResult();
-      expect(deluxeResult, 'deluxe_burger_01');
+      expect(deluxeResult, startsWith('result_deluxe_burger_'));
       expect(deluxe.table.sourceCardIdsForResult(deluxeResult), [
         'bread_01',
         'patty_01',
@@ -493,7 +497,7 @@ void main() {
 
       final spicy = TestKitchen();
       final spicyResult = spicy.makeSpicyResult();
-      expect(spicyResult, 'spicy_burger_01');
+      expect(spicyResult, startsWith('result_spicy_burger_'));
       expect(spicy.table.sourceCardIdsForResult(spicyResult), [
         'bread_01',
         'patty_01',
@@ -664,19 +668,14 @@ void main() {
   );
 
   test(
-    'successful service recycles only consumed sources and preserves other work',
+    'successful service leaves sources consumed and preserves other work',
     () {
       final kitchen = TestKitchen();
       final resultId = kitchen.makeClassicResult();
       kitchen.start(knifeProcessingDefinition);
       kitchen.table.markCardServed(resultId);
-      kitchen.table.recycleServedResultSources(
-        resultCardId: resultId,
-        rawDefinitionsById: prototypeRawDefinitionsById,
-        handPositions: GameLayout.initialHandCardPositions,
-      );
       for (final cardId in ['bread_01', 'patty_01', 'cheese_01']) {
-        expect(kitchen.table.isInHand(cardId), isTrue);
+        expect(kitchen.table.isConsumed(cardId), isTrue);
       }
       expect(kitchen.processing.activeJobForEquipment('knife_01'), isNotNull);
       expect(kitchen.table.isProcessing('tomato_01'), isTrue);
@@ -684,18 +683,13 @@ void main() {
     },
   );
 
-  test('crispy fries recycle potato only after service', () {
+  test('crispy fries remain served without creating a potato', () {
     final kitchen = TestKitchen();
     kitchen.start(fryerProcessingDefinition);
     kitchen.finish(fryerProcessingDefinition);
     kitchen.table.markCardServed('potato_01');
-    kitchen.table.recycleServedResultSources(
-      resultCardId: 'potato_01',
-      rawDefinitionsById: prototypeRawDefinitionsById,
-      handPositions: GameLayout.initialHandCardPositions,
-    );
-    expect(kitchen.table.definitionFor('potato_01').type, CardType.potato);
-    expect(kitchen.table.isInHand('potato_01'), isTrue);
+    expect(kitchen.table.definitionFor('potato_01').type, CardType.crispyFries);
+    expect(kitchen.table.isServed('potato_01'), isTrue);
     expect(kitchen.table.isInHand('bread_01'), isTrue);
   });
 
@@ -1012,7 +1006,7 @@ void main() {
     );
   });
 
-  test('consumed sources leave the active render order until recycled', () {
+  test('recipe sources stay consumed and never re-enter render order', () {
     final kitchen = TestKitchen();
     final resultId = kitchen.makeClassicResult();
     final activeBeforeService = kitchen.table.tableCardIdsInRenderOrder;
@@ -1023,113 +1017,103 @@ void main() {
     expect(activeBeforeService, isNot(contains('cheese_01')));
   });
 
-  test(
-    'FLOW 1: classic burger processes, serves, rewards, and recycles sources',
-    () {
-      final kitchen = TestKitchen();
-      expect(kitchen.start(panProcessingDefinition), isTrue);
-      kitchen.finish(panProcessingDefinition);
-      final resultId = kitchen.resolve(['bread_01', 'patty_01', 'cheese_01']);
-      final orders = ordersWithSingleRequestedResult(CardType.classicBurger);
-      final shift = ShiftState();
+  test('FLOW 1: classic burger serves once without replenishing sources', () {
+    final kitchen = TestKitchen();
+    expect(kitchen.start(panProcessingDefinition), isTrue);
+    kitchen.finish(panProcessingDefinition);
+    final resultId = kitchen.resolve(['bread_01', 'patty_01', 'cheese_01']);
+    final orders = ordersWithSingleRequestedResult(CardType.classicBurger);
+    final shift = ShiftState();
 
-      final completion = orders.tryServe(
-        cardId: resultId,
-        tableState: kitchen.table,
-        shiftState: shift,
-        rewardCoins: 10,
-        enterShiftFeedback: false,
-      );
-      recycleServedResult(kitchen, resultId);
+    final completion = orders.tryServe(
+      cardId: resultId,
+      tableState: kitchen.table,
+      shiftState: shift,
+      rewardCoins: 10,
+      enterShiftFeedback: false,
+    );
+    expect(completion?.rewardCoins, 10);
+    expect(shift.walletCoins, GameLayout.initialWalletCoins + 10);
+    expect(kitchen.table.sourceCardIdsForResult(resultId), [
+      'bread_01',
+      'patty_01',
+      'cheese_01',
+    ]);
+    for (final cardId in ['bread_01', 'patty_01', 'cheese_01']) {
+      expect(kitchen.table.isConsumed(cardId), isTrue);
+    }
+    expect(kitchen.table.isInHand('tomato_01'), isTrue);
+  });
 
-      expect(completion?.rewardCoins, 10);
-      expect(shift.walletCoins, GameLayout.initialWalletCoins + 10);
-      expect(kitchen.table.sourceCardIdsForResult(resultId), [
-        'bread_01',
-        'patty_01',
-        'cheese_01',
-      ]);
-      for (final cardId in ['bread_01', 'patty_01', 'cheese_01']) {
-        expect(kitchen.table.isInHand(cardId), isTrue);
-      }
-      expect(kitchen.table.isInHand('tomato_01'), isTrue);
-    },
-  );
+  test('FLOW 2: deluxe burger keeps its full consumed lineage', () {
+    final kitchen = TestKitchen();
+    expect(kitchen.start(panProcessingDefinition), isTrue);
+    kitchen.finish(panProcessingDefinition);
+    expect(kitchen.start(knifeProcessingDefinition), isTrue);
+    kitchen.finish(knifeProcessingDefinition);
+    final resultId = kitchen.resolve([
+      'bread_01',
+      'patty_01',
+      'tomato_01',
+      'cheese_01',
+    ]);
+    final orders = ordersWithSingleRequestedResult(CardType.deluxeBurger);
+    final shift = ShiftState();
 
-  test(
-    'FLOW 2: deluxe burger uses sliced tomato and recycles its full lineage',
-    () {
-      final kitchen = TestKitchen();
-      expect(kitchen.start(panProcessingDefinition), isTrue);
-      kitchen.finish(panProcessingDefinition);
-      expect(kitchen.start(knifeProcessingDefinition), isTrue);
-      kitchen.finish(knifeProcessingDefinition);
-      final resultId = kitchen.resolve([
-        'bread_01',
-        'patty_01',
-        'tomato_01',
-        'cheese_01',
-      ]);
-      final orders = ordersWithSingleRequestedResult(CardType.deluxeBurger);
-      final shift = ShiftState();
+    final completion = orders.tryServe(
+      cardId: resultId,
+      tableState: kitchen.table,
+      shiftState: shift,
+      rewardCoins: 15,
+      enterShiftFeedback: false,
+    );
+    expect(completion?.requestedResultType, CardType.deluxeBurger);
+    expect(shift.shiftEarnings, 15);
+    expect(kitchen.table.sourceCardIdsForResult(resultId), [
+      'bread_01',
+      'patty_01',
+      'tomato_01',
+      'cheese_01',
+    ]);
+    expect(
+      kitchen.table.definitionFor('tomato_01').type,
+      CardType.slicedTomato,
+    );
+    expect(kitchen.table.isConsumed('tomato_01'), isTrue);
+    expect(kitchen.table.isInHand('hot_sauce_01'), isTrue);
+  });
 
-      final completion = orders.tryServe(
-        cardId: resultId,
-        tableState: kitchen.table,
-        shiftState: shift,
-        rewardCoins: 15,
-        enterShiftFeedback: false,
-      );
-      recycleServedResult(kitchen, resultId);
+  test('FLOW 3: spicy burger keeps its exact consumed lineage', () {
+    final kitchen = TestKitchen();
+    expect(kitchen.start(panProcessingDefinition), isTrue);
+    kitchen.finish(panProcessingDefinition);
+    final resultId = kitchen.resolve([
+      'bread_01',
+      'patty_01',
+      'hot_sauce_01',
+      'cheese_01',
+    ]);
+    final orders = ordersWithSingleRequestedResult(CardType.spicyBurger);
+    final shift = ShiftState();
 
-      expect(completion?.requestedResultType, CardType.deluxeBurger);
-      expect(shift.shiftEarnings, 15);
-      expect(kitchen.table.sourceCardIdsForResult(resultId), [
-        'bread_01',
-        'patty_01',
-        'tomato_01',
-        'cheese_01',
-      ]);
-      expect(kitchen.table.definitionFor('tomato_01').type, CardType.tomato);
-      expect(kitchen.table.isInHand('hot_sauce_01'), isTrue);
-    },
-  );
-
-  test(
-    'FLOW 3: spicy burger uses hot sauce and recycles its exact lineage',
-    () {
-      final kitchen = TestKitchen();
-      expect(kitchen.start(panProcessingDefinition), isTrue);
-      kitchen.finish(panProcessingDefinition);
-      final resultId = kitchen.resolve([
-        'bread_01',
-        'patty_01',
-        'hot_sauce_01',
-        'cheese_01',
-      ]);
-      final orders = ordersWithSingleRequestedResult(CardType.spicyBurger);
-      final shift = ShiftState();
-
-      final completion = orders.tryServe(
-        cardId: resultId,
-        tableState: kitchen.table,
-        shiftState: shift,
-        rewardCoins: 15,
-        enterShiftFeedback: false,
-      );
-      recycleServedResult(kitchen, resultId);
-
-      expect(completion?.requestedResultType, CardType.spicyBurger);
-      expect(shift.walletCoins, GameLayout.initialWalletCoins + 15);
-      expect(kitchen.table.sourceCardIdsForResult(resultId), [
-        'bread_01',
-        'patty_01',
-        'hot_sauce_01',
-        'cheese_01',
-      ]);
-      expect(kitchen.table.isInHand('tomato_01'), isTrue);
-    },
-  );
+    final completion = orders.tryServe(
+      cardId: resultId,
+      tableState: kitchen.table,
+      shiftState: shift,
+      rewardCoins: 15,
+      enterShiftFeedback: false,
+    );
+    expect(completion?.requestedResultType, CardType.spicyBurger);
+    expect(shift.walletCoins, GameLayout.initialWalletCoins + 15);
+    expect(kitchen.table.sourceCardIdsForResult(resultId), [
+      'bread_01',
+      'patty_01',
+      'hot_sauce_01',
+      'cheese_01',
+    ]);
+    expect(kitchen.table.isConsumed('hot_sauce_01'), isTrue);
+    expect(kitchen.table.isInHand('tomato_01'), isTrue);
+  });
 
   test('FLOW 4: crispy fries serve for eight coins without Double Cheese', () {
     final kitchen = TestKitchen();
@@ -1149,12 +1133,10 @@ void main() {
       rewardCoins: reward,
       enterShiftFeedback: false,
     );
-    recycleServedResult(kitchen, 'potato_01');
-
     expect(completion?.rewardCoins, 8);
     expect(shift.shiftEarnings, 8);
-    expect(kitchen.table.definitionFor('potato_01').type, CardType.potato);
-    expect(kitchen.table.isInHand('potato_01'), isTrue);
+    expect(kitchen.table.definitionFor('potato_01').type, CardType.crispyFries);
+    expect(kitchen.table.isServed('potato_01'), isTrue);
   });
 
   test(
@@ -1534,6 +1516,13 @@ void main() {
       return position + const Offset(52, 39);
     }
 
+    Offset pantryCenter(String supplyId) =>
+        game.pantryState.slotFor(supplyId).position + const Offset(52, 39);
+    String singleActiveType(CardType type) => game
+        .tableState
+        .tableCardIdsInRenderOrder
+        .singleWhere((id) => game.tableState.definitionFor(id).type == type);
+
     await tester.pumpWidget(SonSiparisApp(game: game));
     await tester.pump(const Duration(milliseconds: 100));
     await tester.tapAt(screen(const Offset(640, 506)));
@@ -1548,32 +1537,40 @@ void main() {
       isTrue,
     );
 
-    await drag(centerOf('bread_01'), const Offset(312, 280));
-    expect(game.tableState.isInHand('bread_01'), isTrue);
+    await drag(pantryCenter('bread_01'), const Offset(312, 280));
+    expect(
+      game.tableState.tableCardIdsInRenderOrder.where(
+        (id) => game.tableState.definitionFor(id).type == CardType.bread,
+      ),
+      isEmpty,
+    );
+    expect(game.pantryState.isAvailable('bread_01'), isTrue);
     await drag(
-      centerOf('patty_01'),
+      pantryCenter('patty_01'),
       game.tableState.placementFor('pan_01').currentValidPosition +
           const Offset(45, 30),
     );
-    expect(game.processingState.isProcessingInput('patty_01'), isTrue);
+    final rawPattyId = game.processingState.activeJobs.single.inputCardId;
+    expect(rawPattyId, startsWith('raw_patty_'));
+    expect(game.processingState.isProcessingInput(rawPattyId), isTrue);
     expect(game.tutorialState.currentStep, TutorialStep.buildClassicBurger);
 
     game.update(GameLayout.processingDurationSeconds + .1);
     await tester.pump(const Duration(milliseconds: 100));
     expect(
-      game.tableState.definitionFor('patty_01').type,
+      game.tableState.definitionFor(rawPattyId).type,
       CardType.cookedPatty,
     );
-    await drag(centerOf('bread_01'), const Offset(320, 280));
-    await drag(centerOf('patty_01'), centerOf('bread_01'));
-    await drag(centerOf('cheese_01'), centerOf('patty_01'));
-    expect(
-      game.tableState.definitionFor('classic_burger_01').type,
-      CardType.classicBurger,
-    );
+    await drag(pantryCenter('bread_01'), const Offset(320, 280));
+    final breadId = singleActiveType(CardType.bread);
+    await drag(centerOf(rawPattyId), centerOf(breadId));
+    await drag(pantryCenter('cheese_01'), centerOf(rawPattyId));
+    final tutorialResultId = game.tableState.definitions
+        .singleWhere((definition) => definition.type == CardType.classicBurger)
+        .id;
     expect(game.tutorialState.currentStep, TutorialStep.serveClassicBurger);
     await drag(
-      centerOf('classic_burger_01'),
+      centerOf(tutorialResultId),
       GameLayout.serviceCounterBounds.center - const Offset(52, 22),
     );
     expect(game.tutorialState.status, TutorialStatus.completed);

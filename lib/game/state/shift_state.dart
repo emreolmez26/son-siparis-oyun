@@ -18,6 +18,8 @@ class ShiftState {
   int highestCombo = 0;
   int shiftEarnings = 0;
   int successfulServices = 0;
+  int sabotagesDefended = 0;
+  int sabotagesAffected = 0;
 
   double get remainingShiftSeconds =>
       (shiftDurationSeconds - elapsedShiftSeconds)
@@ -96,6 +98,15 @@ class ShiftState {
     return true;
   }
 
+  void resetCombo() {
+    currentCombo = 0;
+  }
+
+  void setSabotageSummary({required int defended, required int affected}) {
+    sabotagesDefended = defended;
+    sabotagesAffected = affected;
+  }
+
   void finishFeedback() {
     if (phase != ShiftPhase.serviceFeedback &&
         phase != ShiftPhase.failureFeedback) {
@@ -115,6 +126,8 @@ class ShiftState {
     shiftEarnings: shiftEarnings,
     totalWalletCoins: walletCoins,
     durationSeconds: shiftDurationSeconds,
+    sabotagesDefended: sabotagesDefended,
+    sabotagesAffected: sabotagesAffected,
   );
 
   void startNewShift() {
@@ -126,5 +139,7 @@ class ShiftState {
     highestCombo = 0;
     shiftEarnings = 0;
     successfulServices = 0;
+    sabotagesDefended = 0;
+    sabotagesAffected = 0;
   }
 }
