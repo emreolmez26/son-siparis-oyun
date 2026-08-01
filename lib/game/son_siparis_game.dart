@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 
 import 'components/customer_area_component.dart';
+import 'components/combo_feedback_component.dart';
 import 'components/game_card_component.dart';
 import 'components/hud_component.dart';
 import 'components/kitchen_table_component.dart';
+import 'components/last_second_feedback_component.dart';
 import 'components/main_menu_component.dart';
 import 'components/order_failure_feedback_component.dart';
 import 'components/pause_overlay_component.dart';
@@ -13,35 +17,53 @@ import 'components/player_hand_component.dart';
 import 'components/processing_indicator_component.dart';
 import 'components/processing_preview_component.dart';
 import 'components/recipe_button_component.dart';
+import 'components/recipe_book_component.dart';
 import 'components/recipe_feedback_component.dart';
 import 'components/recipe_preview_component.dart';
 import 'components/service_counter_component.dart';
 import 'components/service_feedback_component.dart';
 import 'components/service_preview_component.dart';
+import 'components/settings_component.dart';
 import 'components/shift_results_component.dart';
 import 'components/snap_preview_component.dart';
 import 'components/stack_preview_component.dart';
+import 'components/shift_moment_component.dart';
+import 'components/tutorial_overlay_component.dart';
 import 'components/upgrade_selection_component.dart';
 import 'data/prototype_card_definitions.dart';
 import 'data/prototype_customer_definitions.dart';
 import 'data/prototype_processing_definitions.dart';
 import 'data/prototype_recipe_definitions.dart';
+import 'data/recipe_book_entries.dart';
 import 'game_layout.dart';
 import 'kitchen_grid.dart';
 import 'models/app_screen.dart';
 import 'models/card_definition.dart';
 import 'models/card_drag_snapshot.dart';
+import 'models/game_settings.dart';
 import 'models/customer_slot_state.dart';
 import 'models/processing_job.dart';
 import 'models/recipe_definition.dart';
 import 'models/recipe_resolution.dart';
+import 'models/save_data.dart';
 import 'models/shift_phase.dart';
+import 'models/shift_moment.dart';
+import 'models/tutorial_status.dart';
 import 'models/upgrade_id.dart';
 import 'state/equipment_processing_state.dart';
+import 'state/feedback_state.dart';
 import 'state/game_flow_controller.dart';
 import 'state/kitchen_table_state.dart';
 import 'state/order_system.dart';
+import 'state/run_progression_state.dart';
 import 'state/shift_state.dart';
+import 'state/recipe_discovery_state.dart';
+import 'state/shift_moment_tracker.dart';
+import 'state/tutorial_state.dart';
+import 'state/upgrade_state.dart';
+import 'services/audio_service.dart';
+import 'services/haptic_service.dart';
+import 'services/save_service.dart';
 import 'systems/equipment_target_resolver.dart';
 import 'systems/processing_output_resolver.dart';
 import 'systems/recipe_resolver.dart';
@@ -50,13 +72,29 @@ import 'systems/stack_layout.dart';
 import 'systems/stack_target_resolver.dart';
 
 class SonSiparisGame extends FlameGame {
-  SonSiparisGame()
-    : super(
-        camera: CameraComponent.withFixedResolution(
-          width: GameLayout.designWidth,
-          height: GameLayout.designHeight,
-        ),
-      );
+  SonSiparisGame({
+    SaveData? initialSaveData,
+    SaveService? saveService,
+    AudioService? audioService,
+    HapticService? hapticService,
+  }) : _initialSaveData = initialSaveData ?? SaveData(),
+       _saveService = saveService,
+       super(
+         camera: CameraComponent.withFixedResolution(
+           width: GameLayout.designWidth,
+           height: GameLayout.designHeight,
+         ),
+       ) {
+    settings = _initialSaveData.settings;
+    audio = audioService ?? PlatformAudioService(settings);
+    haptics = hapticService ?? PlatformHapticService(settings);
+  }
+
+  final SaveData _initialSaveData;
+  final SaveService? _saveService;
+  late final GameSettings settings;
+  late final AudioService audio;
+  late final HapticService haptics;
 
   late final KitchenGrid _kitchenGrid = KitchenGrid(
     tableBounds: GameLayout.kitchenTableBounds,
@@ -84,7 +122,25 @@ class SonSiparisGame extends FlameGame {
   late final ServiceTargetResolver _serviceTargetResolver =
       ServiceTargetResolver(cardSize: GameLayout.cardSize);
   late final ShiftState _shiftState = ShiftState();
-  late final GameFlowController _flow = GameFlowController();
+  late final GameFlowController _flow = GameFlowController(
+    progression: RunProgressionState(
+      currentDay: _initialSaveData.day,
+      walletCoins: _initialSaveData.wallet,
+      upgrades: UpgradeState(
+        initialLevels: {
+          for (final id in UpgradeId.values)
+            id: _initialSaveData.upgradeLevels[id.name] ?? 0,
+        },
+      ),
+    ),
+  );
+  late final TutorialState _tutorialState = TutorialState(
+    initialStatus: _initialSaveData.tutorialStatus,
+  );
+  late final RecipeDiscoveryState _recipeDiscoveryState = RecipeDiscoveryState(
+    initiallyDiscovered: _initialSaveData.discoveredRecipeIds,
+  );
+  late final ShiftMomentTracker _shiftMomentTracker = ShiftMomentTracker();
   late final OrderSystem _orderSystem = OrderSystem(
     customerDefinitions: prototypeCustomerDefinitions,
   );
@@ -113,6 +169,15 @@ class SonSiparisGame extends FlameGame {
       OrderFailureFeedbackComponent();
   late final ServiceCounterComponent _serviceCounter =
       ServiceCounterComponent();
+  late final HudComponent _hud = HudComponent(
+    shiftState: _shiftState,
+    dayProvider: () => _flow.progression.currentDay,
+    onPausePressed: _togglePause,
+  );
+  late final ComboFeedbackComponent _comboFeedback = ComboFeedbackComponent();
+  late final ComboMilestoneTracker _comboMilestones = ComboMilestoneTracker();
+  late final LastSecondFeedbackState _lastSecondFeedbackState =
+      LastSecondFeedbackState();
 
   final Map<String, GameCardComponent> _cardComponents = {};
   String? _activeCardId;
@@ -124,8 +189,13 @@ class SonSiparisGame extends FlameGame {
   OrderSystem get orderSystem => _orderSystem;
   EquipmentProcessingState get processingState => _processingState;
   KitchenTableState get tableState => _tableState;
+  TutorialState get tutorialState => _tutorialState;
+  RecipeDiscoveryState get recipeDiscoveryState => _recipeDiscoveryState;
+  ShiftMomentTracker get shiftMomentTracker => _shiftMomentTracker;
+  ShiftMoment? get selectedShiftMoment => _shiftMomentTracker.selectMoment();
   bool get isGameplayInputAllowed =>
       _flow.isGameplayActive && _shiftState.isGameplayInputAllowed;
+  bool get canContinue => _currentSaveData().hasProgress;
 
   @override
   Color backgroundColor() => GameLayout.backgroundColor;
@@ -138,13 +208,12 @@ class SonSiparisGame extends FlameGame {
       ..position = Vector2.zero();
 
     world.addAll([
-      HudComponent(
-        shiftState: _shiftState,
-        dayProvider: () => _flow.progression.currentDay,
-        onPausePressed: _togglePause,
-      ),
+      _hud,
       CustomerAreaComponent(orderSystem: _orderSystem),
-      RecipeButtonComponent(),
+      RecipeButtonComponent(
+        isShowing: () => _flow.screen == AppScreen.gameplay,
+        onOpenRecipeBook: _openRecipeBook,
+      ),
       KitchenTableComponent(),
       _serviceCounter,
       PlayerHandComponent(),
@@ -156,6 +225,8 @@ class SonSiparisGame extends FlameGame {
       _servicePreview,
       _serviceFeedback,
       _failureFeedback,
+      _comboFeedback,
+      LastSecondFeedbackComponent(state: _lastSecondFeedbackState),
       ProcessingIndicatorComponent(
         jobsProvider: () => _processingState.activeJobs,
         positionForCard: (cardId) =>
@@ -168,33 +239,66 @@ class SonSiparisGame extends FlameGame {
       ShiftResultsComponent(
         shiftState: _shiftState,
         isShowing: () => _flow.screen == AppScreen.shiftResults,
-        onSelectUpgrades: _showUpgradeSelection,
+        onSelectUpgrades: _continueAfterResults,
       ),
       MainMenuComponent(
         isShowing: () => _flow.screen == AppScreen.mainMenu,
         progression: _flow.progression,
         onStartShift: _startShiftFromMenu,
+        onContinue: _startShiftFromMenu,
+        canContinue: () => canContinue,
+        onOpenRecipeBook: _openRecipeBook,
+        onOpenSettings: _openSettings,
+      ),
+      SettingsComponent(
+        isShowing: () => _flow.screen == AppScreen.settings,
+        settings: settings,
+        onSettingsChanged: _settingsChanged,
+        onReplayTutorial: _replayTutorial,
+        onResetConfirmed: _resetSave,
+        onBack: _closeSettings,
+      ),
+      RecipeBookComponent(
+        entries: recipeBookEntries,
+        discoveryState: _recipeDiscoveryState,
+        progression: _flow.progression,
+        isShowing: () => _flow.screen == AppScreen.recipeBook,
+        onClose: _closeRecipeBook,
+      ),
+      ShiftMomentComponent(
+        momentProvider: () => selectedShiftMoment,
+        isShowing: () => _flow.screen == AppScreen.shiftMoment,
+        onContinue: _showUpgradeSelection,
       ),
       UpgradeSelectionComponent(
         flow: _flow,
         isShowing: () => _flow.screen == AppScreen.upgradeSelection,
         onConfirm: _confirmUpgradeSelection,
       ),
+      TutorialOverlayComponent(
+        tutorialState: _tutorialState,
+        sourceBoundsProvider: _tutorialSourceBounds,
+        targetBoundsProvider: _tutorialTargetBounds,
+        onSkip: _skipTutorial,
+      ),
     ]);
     _syncCardComponentsFromState();
   }
 
-  void _handleDragStarted(String cardId) {
+  bool _handleDragStarted(String cardId) {
     if (!isGameplayInputAllowed ||
         _processingState.isCardLocked(cardId) ||
         _tableState.isConsumed(cardId) ||
-        _tableState.isServed(cardId)) {
-      return;
+        _tableState.isServed(cardId) ||
+        !_tutorialState.allowsCard(_tableState.definitionFor(cardId))) {
+      return false;
     }
     _activeCardId = cardId;
     _activeDragSnapshot = _tableState.beginCardDrag(cardId);
     _syncCardComponentsFromState();
     _hideInteractionPreviews();
+    audio.play(SoundEventId.cardPickUp);
+    return true;
   }
 
   void _updateDragFeedback(String cardId, Vector2 cardPosition) {
@@ -288,18 +392,54 @@ class SonSiparisGame extends FlameGame {
       if (completion == null) {
         _restoreActiveDragSnapshot(cardId);
       } else {
+        _cardComponents[cardId]?.triggerValidDrop();
         _tableState.recycleServedResultSources(
           resultCardId: cardId,
           rawDefinitionsById: prototypeRawDefinitionsById,
           handPositions: GameLayout.initialHandCardPositions,
         );
         _flow.progression.addWalletCoins(completion.rewardCoins);
+        _persist();
+        _shiftMomentTracker.recordSuccessfulService(
+          resultDefinition: definition,
+          remainingPatienceSeconds: completion.remainingPatienceSeconds,
+          combo: _shiftState.currentCombo,
+          rewardCoins: completion.rewardCoins,
+        );
+        if (_tutorialState.serviceCompleted(
+          resultType: completion.requestedResultType,
+        )) {
+          _orderSystem.clearTutorialPatienceProtection();
+          _persist();
+        }
         _hasPendingPatienceBonus =
             _flow.progression.upgrades.levelFor(UpgradeId.coolHeadedService) >
             0;
         _serviceCounter.triggerSuccessGlow();
-        _serviceFeedback.trigger(rewardCoins: completion.rewardCoins);
+        _serviceFeedback.trigger(
+          rewardCoins: completion.rewardCoins,
+          origin: Offset(cardPosition.x, cardPosition.y),
+        );
+        _hud
+          ..triggerWalletPulse()
+          ..triggerComboPulse();
+        final milestone = _comboMilestones.record(_shiftState.currentCombo);
+        if (milestone != null) {
+          _comboFeedback.trigger(milestone);
+          audio.play(SoundEventId.comboMilestone);
+        }
+        _lastSecondFeedbackState.trigger(completion.remainingPatienceSeconds);
+        audio.play(SoundEventId.correctService);
+        haptics.trigger(
+          completion.remainingPatienceSeconds <= 1
+              ? HapticEvent.lastSecond
+              : HapticEvent.service,
+        );
       }
+    } else if (_isWrongServiceDrop(cardId, cardPosition)) {
+      _restoreActiveDragSnapshot(cardId);
+      _serviceCounter.triggerRejection();
+      audio.play(SoundEventId.wrongService);
     } else {
       final equipmentTarget = _resolveEquipmentTarget(cardId, cardPosition);
       if (equipmentTarget != null) {
@@ -321,12 +461,23 @@ class SonSiparisGame extends FlameGame {
               durationSeconds: durationSeconds,
             );
         if (!started) _restoreActiveDragSnapshot(cardId);
+        if (started) {
+          _cardComponents[cardId]?.triggerValidDrop();
+          audio.play(SoundEventId.equipmentStart);
+          _tutorialState.processingStarted(
+            inputCardId: cardId,
+            equipmentCardId: equipmentTarget.equipmentCardId,
+          );
+        }
       } else {
         final target = _resolveStackTarget(cardId, cardPosition);
         final wasStacked =
             target != null &&
             _tableState.tryStackCardOnTarget(cardId, target.cardId);
         if (wasStacked) {
+          _cardComponents[cardId]?.triggerStackLanding();
+          audio.play(SoundEventId.stackCreate);
+          haptics.trigger(HapticEvent.cardSnap);
           recipeResolution = _tryResolveRecipeAfterStackMutation(cardId);
         }
         if (!wasStacked) {
@@ -335,6 +486,8 @@ class SonSiparisGame extends FlameGame {
           );
           if (snappedPosition != null) {
             _tableState.commitKitchenTablePlacement(cardId, snappedPosition);
+            _cardComponents[cardId]?.triggerValidDrop();
+            haptics.trigger(HapticEvent.cardSnap);
           } else {
             _restoreActiveDragSnapshot(cardId);
           }
@@ -346,12 +499,21 @@ class SonSiparisGame extends FlameGame {
       resultPopCardId: recipeResolution?.resultCardId,
     );
     if (recipeResolution != null) {
+      if (_recipeDiscoveryState.discover(recipeResolution.recipeId)) {
+        _persist();
+      }
+      _tutorialState.recipeResolved(recipeId: recipeResolution.recipeId);
       _recipeFeedback.trigger(
         anchor: recipeResolution.basePosition,
-        text:
-            '${_tableState.definitionFor(recipeResolution.resultCardId).displayName.toUpperCase()}!',
+        text: _tableState
+            .definitionFor(recipeResolution.resultCardId)
+            .displayName
+            .toUpperCase(),
       );
+      audio.play(SoundEventId.recipeComplete);
+      haptics.trigger(HapticEvent.recipeComplete);
     }
+    audio.play(SoundEventId.cardDrop);
     _hideInteractionPreviews();
     return _toVector2(_tableState.placementFor(cardId).currentValidPosition);
   }
@@ -363,10 +525,11 @@ class SonSiparisGame extends FlameGame {
         _shiftState.phase != ShiftPhase.active) {
       return;
     }
-    _advanceActiveGameplay(dt);
+    _advanceActiveGameplay(_lastSecondFeedbackState.scaleDelta(dt));
   }
 
   void _advanceActiveGameplay(double dt) {
+    _tutorialState.advance(dt);
     if (_shiftState.advanceActiveTime(dt)) {
       _endShift();
       return;
@@ -412,7 +575,11 @@ class SonSiparisGame extends FlameGame {
         resultCardId: completedJob.inputCardId,
         sourceCardIds: [completedJob.inputCardId],
       );
+      if (_recipeDiscoveryState.discover('crispy_fries')) _persist();
     }
+    _cardComponents[completedJob.inputCardId]?.triggerResultPop();
+    audio.play(SoundEventId.equipmentComplete);
+    haptics.trigger(HapticEvent.processingComplete);
   }
 
   void _handleCustomerFailure(CustomerSlotState slot) {
@@ -421,6 +588,9 @@ class SonSiparisGame extends FlameGame {
       return;
     }
     _failureFeedback.trigger();
+    _comboMilestones.record(0);
+    _hud.triggerComboPulse();
+    audio.play(SoundEventId.orderFailed);
   }
 
   void _togglePause() {
@@ -439,32 +609,51 @@ class SonSiparisGame extends FlameGame {
     _processingState.clearActiveJob();
     _resetPreparationState();
     _orderSystem.closeActiveOrder();
+    _tutorialState.finishFirstShiftSafely();
+    _orderSystem.clearTutorialPatienceProtection();
     _hasPendingPatienceBonus = false;
     _shiftState.endShift();
     _flow.showResults();
+    _persist();
+    audio.play(SoundEventId.shiftComplete);
     _hideInteractionPreviews();
     _syncCardComponentsFromState();
   }
 
   void _startShiftFromMenu() {
-    if (_flow.startShift()) _prepareFreshShift();
+    if (_flow.startShift()) {
+      final startsTutorial = _tutorialState.startFirstShift();
+      _prepareFreshShift(tutorialFirstOrder: startsTutorial);
+    }
   }
 
   void _showUpgradeSelection() {
     _flow.showUpgradeSelection();
   }
 
-  void _confirmUpgradeSelection() {
-    if (_flow.confirmUpgrade() != null) _prepareFreshShift();
+  void _continueAfterResults() {
+    if (selectedShiftMoment != null) {
+      _flow.showShiftMoment();
+    } else {
+      _flow.showUpgradeSelection();
+    }
   }
 
-  void _prepareFreshShift() {
+  void _confirmUpgradeSelection() {
+    if (_flow.confirmUpgrade() != null) {
+      _persist();
+      _prepareFreshShift();
+    }
+  }
+
+  void _prepareFreshShift({bool tutorialFirstOrder = false}) {
     _cancelActiveDrag();
     _resetPreparationState();
-    _orderSystem.startShift();
+    _orderSystem.startShift(tutorialFirstOrder: tutorialFirstOrder);
     _hasPendingPatienceBonus = false;
     _shiftState.walletCoins = _flow.progression.walletCoins;
     _shiftState.startNewShift();
+    _shiftMomentTracker.startShift(day: _flow.progression.currentDay);
     _hideInteractionPreviews();
     _syncCardComponentsFromState();
   }
@@ -490,6 +679,8 @@ class SonSiparisGame extends FlameGame {
       throw StateError('Missing drag snapshot for $cardId.');
     }
     _tableState.restoreCardDragSnapshot(snapshot);
+    _cardComponents[cardId]?.triggerInvalidDrop();
+    audio.play(SoundEventId.invalidDrop);
   }
 
   void _cancelActiveDrag() {
@@ -510,6 +701,105 @@ class SonSiparisGame extends FlameGame {
     _recipePreview.hide();
     _servicePreview.hide();
     _processingPreview.hide();
+  }
+
+  void _openRecipeBook() {
+    if (_flow.showRecipeBook()) {
+      _cancelActiveDrag();
+      _syncCardComponentsFromState();
+    }
+  }
+
+  void _closeRecipeBook() {
+    if (_flow.closeRecipeBook()) _syncCardComponentsFromState();
+  }
+
+  void _openSettings() {
+    if (_flow.showSettings()) audio.play(SoundEventId.buttonTap);
+  }
+
+  void _closeSettings() {
+    if (_flow.closeSettings()) audio.play(SoundEventId.buttonTap);
+  }
+
+  void _settingsChanged() {
+    audio.play(SoundEventId.buttonTap);
+    _persist();
+  }
+
+  void _replayTutorial() {
+    _tutorialState.resetForReplay();
+    audio.play(SoundEventId.buttonTap);
+    _persist();
+  }
+
+  void _resetSave() {
+    unawaited(_saveService?.reset());
+    _flow.progression.reset();
+    _recipeDiscoveryState.reset();
+    _tutorialState.resetForReplay();
+    settings.reset();
+    _flow.resetToMainMenu();
+    _resetPreparationState();
+    _shiftState.walletCoins = _flow.progression.walletCoins;
+    _hideInteractionPreviews();
+    _syncCardComponentsFromState();
+  }
+
+  void _skipTutorial() {
+    if (_tutorialState.skip()) {
+      _orderSystem.clearTutorialPatienceProtection();
+      _syncCardComponentsFromState();
+      _persist();
+    }
+  }
+
+  SaveData _currentSaveData() => SaveData(
+    day: _flow.progression.currentDay,
+    wallet: _flow.progression.walletCoins,
+    upgradeLevels: {
+      for (final entry in _flow.progression.upgrades.levels.entries)
+        entry.key.name: entry.value,
+    },
+    discoveredRecipeIds: _recipeDiscoveryState.discoveredRecipeIds,
+    tutorialStatus: _tutorialState.status,
+    settings: settings,
+  );
+
+  void _persist() {
+    final service = _saveService;
+    if (service != null) unawaited(service.save(_currentSaveData()));
+  }
+
+  List<Rect> _tutorialSourceBounds() {
+    if (!_tutorialState.isActive) return const [];
+    final ids = switch (_tutorialState.currentStep) {
+      TutorialStep.cookPatty => const ['patty_01'],
+      TutorialStep.buildClassicBurger => const [
+        'bread_01',
+        'patty_01',
+        'cheese_01',
+      ],
+      TutorialStep.serveClassicBurger => const ['classic_burger_01'],
+    };
+    return ids
+        .where((id) => _tableState.tableCardIdsInRenderOrder.contains(id))
+        .map(
+          (id) =>
+              _cardBoundsAt(_tableState.placementFor(id).currentValidPosition),
+        )
+        .toList(growable: false);
+  }
+
+  Rect? _tutorialTargetBounds() {
+    if (!_tutorialState.isActive) return null;
+    return switch (_tutorialState.currentStep) {
+      TutorialStep.cookPatty => _cardBoundsAt(
+        _tableState.placementFor('pan_01').currentValidPosition,
+      ),
+      TutorialStep.buildClassicBurger => GameLayout.kitchenTableBounds,
+      TutorialStep.serveClassicBurger => GameLayout.serviceCounterBounds,
+    };
   }
 
   EquipmentTarget? _resolveEquipmentTarget(
@@ -558,6 +848,17 @@ class SonSiparisGame extends FlameGame {
         tableState: _tableState,
         orderSystem: _orderSystem,
       );
+
+  bool _isWrongServiceDrop(String cardId, Vector2 cardPosition) {
+    if (_tableState.definitionFor(cardId).category != CardCategory.result) {
+      return false;
+    }
+    final center = Offset(
+      cardPosition.x + (GameLayout.cardWidth / 2),
+      cardPosition.y + (GameLayout.cardHeight / 2),
+    );
+    return GameLayout.serviceCounterBounds.inflate(16).contains(center);
+  }
 
   RecipeResolution? _tryResolveRecipeAfterStackMutation(String cardId) {
     final stack = _tableState.stackForCard(cardId);
@@ -615,7 +916,9 @@ class SonSiparisGame extends FlameGame {
         priority: 20 + entry.$1,
         definition: _tableState.definitionFor(cardId),
         isLocked: _processingState.isCardLocked(cardId),
-        isInteractionLocked: !isGameplayInputAllowed,
+        isInteractionLocked:
+            !isGameplayInputAllowed ||
+            !_tutorialState.allowsCard(_tableState.definitionFor(cardId)),
         isProcessing: _processingState.isProcessingInput(cardId),
       );
       if (cardId == resultPopCardId) cardComponent.triggerResultPop();

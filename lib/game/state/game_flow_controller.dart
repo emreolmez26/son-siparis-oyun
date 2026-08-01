@@ -9,6 +9,7 @@ class GameFlowController {
   final RunProgressionState progression;
   AppScreen screen = AppScreen.mainMenu;
   UpgradeDefinition? selectedUpgrade;
+  AppScreen? _recipeBookReturnScreen;
 
   bool get isGameplayActive => screen == AppScreen.gameplay;
   bool get canConfirmUpgrade => selectedUpgrade != null;
@@ -19,8 +20,46 @@ class GameFlowController {
     return true;
   }
 
+  bool showSettings() {
+    if (screen != AppScreen.mainMenu) return false;
+    screen = AppScreen.settings;
+    return true;
+  }
+
+  bool closeSettings() {
+    if (screen != AppScreen.settings) return false;
+    screen = AppScreen.mainMenu;
+    return true;
+  }
+
+  void resetToMainMenu() {
+    selectedUpgrade = null;
+    _recipeBookReturnScreen = null;
+    screen = AppScreen.mainMenu;
+  }
+
+  bool showRecipeBook() {
+    if (screen != AppScreen.mainMenu && screen != AppScreen.gameplay) {
+      return false;
+    }
+    _recipeBookReturnScreen = screen;
+    screen = AppScreen.recipeBook;
+    return true;
+  }
+
+  bool closeRecipeBook() {
+    if (screen != AppScreen.recipeBook || _recipeBookReturnScreen == null) {
+      return false;
+    }
+    screen = _recipeBookReturnScreen!;
+    _recipeBookReturnScreen = null;
+    return true;
+  }
+
   bool showUpgradeSelection() {
-    if (screen != AppScreen.shiftResults) return false;
+    if (screen != AppScreen.shiftResults && screen != AppScreen.shiftMoment) {
+      return false;
+    }
     selectedUpgrade = null;
     screen = AppScreen.upgradeSelection;
     return true;
@@ -49,5 +88,11 @@ class GameFlowController {
 
   void showResults() {
     if (screen == AppScreen.gameplay) screen = AppScreen.shiftResults;
+  }
+
+  bool showShiftMoment() {
+    if (screen != AppScreen.shiftResults) return false;
+    screen = AppScreen.shiftMoment;
+    return true;
   }
 }

@@ -22,6 +22,18 @@ class HudComponent extends PositionComponent with TapCallbacks {
   final ShiftState shiftState;
   final int Function() dayProvider;
   final void Function()? onPausePressed;
+  double _walletPulseRemaining = 0;
+  double _comboPulseRemaining = 0;
+
+  void triggerWalletPulse() => _walletPulseRemaining = .35;
+  void triggerComboPulse() => _comboPulseRemaining = .48;
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    _walletPulseRemaining = (_walletPulseRemaining - dt).clamp(0, .35);
+    _comboPulseRemaining = (_comboPulseRemaining - dt).clamp(0, .48);
+  }
 
   static const _labelStyle = TextStyle(
     color: GameLayout.mutedTextColor,
@@ -42,6 +54,24 @@ class HudComponent extends PositionComponent with TapCallbacks {
       color: GameLayout.hudColor,
       borderColor: GameLayout.panelStrokeColor,
     );
+    if (_walletPulseRemaining > 0) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTWH(312, 5, 102, 45),
+          const Radius.circular(8),
+        ),
+        Paint()..color = const Color(0x44F6B60B),
+      );
+    }
+    if (_comboPulseRemaining > 0) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTWH(420, 5, 112, 45),
+          const Radius.circular(8),
+        ),
+        Paint()..color = const Color(0x55FFCF4D),
+      );
+    }
 
     _drawStat(canvas, 'GÜN 1', 'Akşam Servisi', 22, 164);
     _drawStat(canvas, 'SÜRE', shiftState.formattedRemainingTime, 202, 100);

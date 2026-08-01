@@ -10,6 +10,10 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
   MainMenuComponent({
     required this.isShowing,
     required this.onStartShift,
+    required this.onContinue,
+    required this.onOpenRecipeBook,
+    required this.onOpenSettings,
+    required this.canContinue,
     required this.progression,
   }) : super(
          size: Vector2(GameLayout.designWidth, GameLayout.designHeight),
@@ -18,12 +22,23 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
 
   final bool Function() isShowing;
   final void Function() onStartShift;
+  final void Function() onContinue;
+  final void Function() onOpenRecipeBook;
+  final void Function() onOpenSettings;
+  final bool Function() canContinue;
   final RunProgressionState progression;
 
   static final _startBounds = Rect.fromCenter(
     center: Offset(640, 506),
     width: 292,
     height: 58,
+  );
+  static const _recipeBookBounds = Rect.fromLTWH(496, 626, 86, 48);
+  static const _settingsBounds = Rect.fromLTWH(696, 626, 86, 48);
+  static final _continueBounds = Rect.fromCenter(
+    center: const Offset(640, 574),
+    width: 292,
+    height: 40,
   );
 
   @override
@@ -83,21 +98,16 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
       ),
       align: TextAlign.center,
     );
-    final continueBounds = Rect.fromCenter(
-      center: const Offset(640, 574),
-      width: 292,
-      height: 40,
-    );
     ShellCanvas.panel(
       canvas,
-      continueBounds,
-      color: const Color(0xFF3B3029),
+      _continueBounds,
+      color: canContinue() ? const Color(0xFF55412F) : const Color(0xFF3B3029),
       borderColor: GameLayout.panelStrokeColor,
       radius: 10,
     );
     ShellCanvas.label(
       canvas,
-      text: 'DEVAM ET  ·  Kayıt yok',
+      text: canContinue() ? 'DEVAM ET' : 'DEVAM ET  ·  Kayıt yok',
       position: Vector2(640, 587),
       style: const TextStyle(
         color: GameLayout.mutedTextColor,
@@ -211,6 +221,28 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
           Offset(event.localPosition.x, event.localPosition.y),
         )) {
       onStartShift();
+      return;
+    }
+    if (isShowing() &&
+        _recipeBookBounds.contains(
+          Offset(event.localPosition.x, event.localPosition.y),
+        )) {
+      onOpenRecipeBook();
+      return;
+    }
+    if (isShowing() &&
+        _continueBounds.contains(
+          Offset(event.localPosition.x, event.localPosition.y),
+        ) &&
+        canContinue()) {
+      onContinue();
+      return;
+    }
+    if (isShowing() &&
+        _settingsBounds.contains(
+          Offset(event.localPosition.x, event.localPosition.y),
+        )) {
+      onOpenSettings();
     }
   }
 }

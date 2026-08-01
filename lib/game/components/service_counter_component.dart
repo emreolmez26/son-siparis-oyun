@@ -29,9 +29,14 @@ class ServiceCounterComponent extends PositionComponent {
     fontWeight: FontWeight.w600,
   );
   double _successGlowRemaining = 0;
+  double _rejectionRemaining = 0;
 
   void triggerSuccessGlow() {
     _successGlowRemaining = GameLayout.serviceFeedbackDurationSeconds;
+  }
+
+  void triggerRejection() {
+    _rejectionRemaining = GameLayout.validDropFeedbackSeconds * 2;
   }
 
   @override
@@ -40,16 +45,28 @@ class ServiceCounterComponent extends PositionComponent {
     _successGlowRemaining = (_successGlowRemaining - dt)
         .clamp(0.0, GameLayout.serviceFeedbackDurationSeconds)
         .toDouble();
+    _rejectionRemaining = (_rejectionRemaining - dt)
+        .clamp(0.0, GameLayout.validDropFeedbackSeconds * 2)
+        .toDouble();
   }
 
   @override
   void render(Canvas canvas) {
     final isGlowing = _successGlowRemaining > 0;
+    final isRejecting = _rejectionRemaining > 0;
     ShellCanvas.panel(
       canvas,
       size.toRect(),
-      color: isGlowing ? const Color(0xFF5B4824) : GameLayout.serviceColor,
-      borderColor: isGlowing ? GameLayout.successColor : GameLayout.accentColor,
+      color: isRejecting
+          ? const Color(0xFF5B2924)
+          : isGlowing
+          ? const Color(0xFF5B4824)
+          : GameLayout.serviceColor,
+      borderColor: isRejecting
+          ? const Color(0xFFE56B57)
+          : isGlowing
+          ? GameLayout.successColor
+          : GameLayout.accentColor,
       radius: 10,
       borderWidth: isGlowing ? 3 : 1.5,
     );

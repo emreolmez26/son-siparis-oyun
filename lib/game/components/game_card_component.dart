@@ -30,7 +30,12 @@ class GameCardComponent extends PositionComponent with DragCallbacks {
   bool isProcessing = false;
   bool _hasAcceptedDrag = false;
   double _resultPopRemaining = 0;
-  final void Function(String cardId) onDragStarted;
+  double _validDropRemaining = 0;
+  double _invalidDropRemaining = 0;
+  double _stackLandingRemaining = 0;
+  Vector2 _returnVisualOffset = Vector2.zero();
+  bool _pendingInvalidDrop = false;
+  final bool Function(String cardId) onDragStarted;
   final void Function(String cardId, Vector2 cardPosition)
   onDragPositionChanged;
   final Vector2 Function(String cardId, Vector2 cardPosition) onDragReleased;
@@ -60,9 +65,9 @@ class GameCardComponent extends PositionComponent with DragCallbacks {
       return;
     }
     super.onDragStart(event);
+    if (!onDragStarted(definition.id)) return;
     _hasAcceptedDrag = true;
     priority = _draggingPriority;
-    onDragStarted(definition.id);
   }
 
   @override
@@ -79,10 +84,16 @@ class GameCardComponent extends PositionComponent with DragCallbacks {
     if (!_hasAcceptedDrag) {
       return;
     }
-    position.setFrom(onDragReleased(definition.id, position.clone()));
+    final releasedPosition = position.clone();
+    final targetPosition = onDragReleased(definition.id, releasedPosition);
+    if (_pendingInvalidDrop) {
+      _returnVisualOffset = releasedPosition - targetPosition;
+    }
+    position.setFrom(targetPosition);
     onDragFinished(definition.id);
     priority = restingPriority;
     _hasAcceptedDrag = false;
+    _pendingInvalidDrop = false;
     super.onDragEnd(event);
   }
 
@@ -114,23 +125,79 @@ class GameCardComponent extends PositionComponent with DragCallbacks {
     _resultPopRemaining = GameLayout.resultCardPopDurationSeconds;
   }
 
+  void triggerValidDrop() {
+    _validDropRemaining = GameLayout.validDropFeedbackSeconds;
+  }
+
+  void triggerInvalidDrop() {
+    _pendingInvalidDrop = true;
+    _invalidDropRemaining = GameLayout.invalidDropReturnSeconds;
+  }
+
+  void triggerStackLanding() {
+    _stackLandingRemaining = GameLayout.stackLandingFeedbackSeconds;
+  }
+
   @override
   void update(double dt) {
     super.update(dt);
     _resultPopRemaining = (_resultPopRemaining - dt)
         .clamp(0.0, GameLayout.resultCardPopDurationSeconds)
         .toDouble();
+    _validDropRemaining = (_validDropRemaining - dt)
+        .clamp(0.0, GameLayout.validDropFeedbackSeconds)
+        .toDouble();
+    _invalidDropRemaining = (_invalidDropRemaining - dt)
+        .clamp(0.0, GameLayout.invalidDropReturnSeconds)
+        .toDouble();
+    _stackLandingRemaining = (_stackLandingRemaining - dt)
+        .clamp(0.0, GameLayout.stackLandingFeedbackSeconds)
+        .toDouble();
+    if (_invalidDropRemaining <= 0) _returnVisualOffset.setZero();
   }
 
   @override
   void render(Canvas canvas) {
     final hasResultPop = _resultPopRemaining > 0;
-    if (hasResultPop) {
-      final progress =
-          _resultPopRemaining / GameLayout.resultCardPopDurationSeconds;
-      final scale = 1 + (.08 * progress);
+    final isAnimating =
+        hasResultPop ||
+        isDragged ||
+        _validDropRemaining > 0 ||
+        _invalidDropRemaining > 0 ||
+        _stackLandingRemaining > 0;
+    if (isAnimating) {
+      final resultScale = hasResultPop
+          ? 1 +
+                (.08 *
+                    (_resultPopRemaining /
+                        GameLayout.resultCardPopDurationSeconds))
+          : 1.0;
+      final validProgress =
+          _validDropRemaining / GameLayout.validDropFeedbackSeconds;
+      final snapScale = _validDropRemaining > 0
+          ? 1 - (.035 * (1 - (validProgress * 2 - 1).abs()))
+          : 1.0;
+      final stackProgress =
+          _stackLandingRemaining / GameLayout.stackLandingFeedbackSeconds;
+      final stackScale = _stackLandingRemaining > 0
+          ? 1 + (.055 * (1 - (stackProgress * 2 - 1).abs()))
+          : 1.0;
+      final returnProgress =
+          _invalidDropRemaining / GameLayout.invalidDropReturnSeconds;
+      final offset = _returnVisualOffset * returnProgress;
+      final shake = _invalidDropRemaining > 0
+          ? (1 - returnProgress) *
+                3 *
+                ((returnProgress * 24).round().isEven ? 1 : -1)
+          : 0.0;
+      final scale =
+          resultScale *
+          snapScale *
+          stackScale *
+          (isDragged ? GameLayout.cardPickupScale : 1);
       canvas
         ..save()
+        ..translate(offset.x + shake, offset.y)
         ..translate(size.x / 2, size.y / 2)
         ..scale(scale)
         ..translate(-size.x / 2, -size.y / 2);
@@ -163,6 +230,10 @@ class GameCardComponent extends PositionComponent with DragCallbacks {
         ? const Color(0xFFE46A35)
         : isLocked
         ? GameLayout.accentColor
+        : _invalidDropRemaining > 0
+        ? const Color(0xFFE56B57)
+        : _stackLandingRemaining > 0
+        ? const Color(0xFFFFCB45)
         : isDragged
         ? accentColor
         : restingBorder;
@@ -173,7 +244,10 @@ class GameCardComponent extends PositionComponent with DragCallbacks {
       color: cardColor,
       borderColor: borderColor,
       radius: 12,
-      borderWidth: isDragged || isLocked || isResult ? 3 : 1.5,
+      borderWidth:
+          isDragged || isLocked || isResult || _invalidDropRemaining > 0
+          ? 3
+          : 1.5,
     );
     if (isResult && hasResultPop) {
       canvas.drawRRect(
@@ -206,7 +280,10 @@ class GameCardComponent extends PositionComponent with DragCallbacks {
       canvas,
       text: definition.displayName,
       position: Vector2(size.x / 2, 48),
-      style: _titleStyle.copyWith(color: const Color(0xFF3A2615)),
+      style: _titleStyle.copyWith(
+        color: const Color(0xFF3A2615),
+        fontSize: definition.displayName.length > 14 ? 10 : 15,
+      ),
       align: TextAlign.center,
       maxWidth: size.x - 12,
     );
@@ -243,7 +320,7 @@ class GameCardComponent extends PositionComponent with DragCallbacks {
       ),
       align: TextAlign.center,
     );
-    if (hasResultPop) {
+    if (isAnimating) {
       canvas.restore();
     }
   }

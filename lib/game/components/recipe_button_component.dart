@@ -1,15 +1,21 @@
 import 'package:flame/components.dart';
+import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 
 import '../game_layout.dart';
 import 'shell_canvas.dart';
 
-class RecipeButtonComponent extends PositionComponent {
-  RecipeButtonComponent()
-    : super(
-        position: Vector2(GameLayout.horizontalPadding, 100),
-        size: Vector2(116, 36),
-      );
+class RecipeButtonComponent extends PositionComponent with TapCallbacks {
+  RecipeButtonComponent({
+    required this.isShowing,
+    required this.onOpenRecipeBook,
+  }) : super(
+         position: Vector2(GameLayout.horizontalPadding, 100),
+         size: Vector2(116, 36),
+       );
+
+  final bool Function() isShowing;
+  final void Function() onOpenRecipeBook;
 
   static const _labelStyle = TextStyle(
     color: GameLayout.primaryTextColor,
@@ -18,7 +24,12 @@ class RecipeButtonComponent extends PositionComponent {
   );
 
   @override
+  bool containsLocalPoint(Vector2 point) =>
+      isShowing() && super.containsLocalPoint(point);
+
+  @override
   void render(Canvas canvas) {
+    if (!isShowing()) return;
     ShellCanvas.panel(
       canvas,
       size.toRect(),
@@ -33,5 +44,10 @@ class RecipeButtonComponent extends PositionComponent {
       style: _labelStyle,
       align: TextAlign.center,
     );
+  }
+
+  @override
+  void onTapUp(TapUpEvent event) {
+    if (isShowing()) onOpenRecipeBook();
   }
 }

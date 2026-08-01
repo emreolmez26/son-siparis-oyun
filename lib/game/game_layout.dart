@@ -47,6 +47,13 @@ abstract final class GameLayout {
   static const double fryerProcessingDurationSeconds = 2.5;
   static const double recipeFeedbackDurationSeconds = .7;
   static const double resultCardPopDurationSeconds = .65;
+  static const double cardPickupScale = 1.05;
+  static const double validDropFeedbackSeconds = .14;
+  static const double invalidDropReturnSeconds = .20;
+  static const double stackLandingFeedbackSeconds = .18;
+  static const double lastSecondSlowdownRealSeconds = .32;
+  static const double lastSecondTimeScale = .42;
+  static const double comboFeedbackDurationSeconds = .85;
   static const double shiftDurationSeconds = 90;
   static const double customerPatienceDurationSeconds = 22;
   static const double serviceFeedbackDurationSeconds = .8;

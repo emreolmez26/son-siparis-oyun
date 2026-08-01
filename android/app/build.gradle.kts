@@ -8,7 +8,8 @@ plugins {
 android {
     namespace = "com.sonsiparis.son_siparis"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // shared_preferences_android uses the already-installed NDK 27 toolchain.
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

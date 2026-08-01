@@ -11,6 +11,8 @@ class UpgradeState {
 
   final Map<UpgradeId, int> _levels;
 
+  Map<UpgradeId, int> get levels => Map.unmodifiable(_levels);
+
   int levelFor(UpgradeId id) => _levels[id] ?? 0;
 
   bool isAtMaximum(UpgradeDefinition definition) =>
@@ -21,6 +23,12 @@ class UpgradeState {
     if (current >= definition.maximumLevel) return false;
     _levels[definition.id] = current + 1;
     return true;
+  }
+
+  void reset() {
+    for (final id in UpgradeId.values) {
+      _levels[id] = 0;
+    }
   }
 
   double effectivePanDuration() =>

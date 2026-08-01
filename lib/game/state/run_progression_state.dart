@@ -21,5 +21,11 @@ class RunProgressionState {
     currentDay += 1;
   }
 
+  void reset() {
+    currentDay = 1;
+    walletCoins = GameLayout.initialWalletCoins;
+    upgrades.reset();
+  }
+
   int levelFor(UpgradeId id) => upgrades.levelFor(id);
 }

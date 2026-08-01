@@ -6,10 +6,12 @@ class ServiceCompletion {
     required this.customerId,
     required this.rewardCoins,
     required this.requestedResultType,
+    required this.remainingPatienceSeconds,
   });
 
   final String orderId;
   final String customerId;
   final int rewardCoins;
   final CardType requestedResultType;
+  final double remainingPatienceSeconds;
 }

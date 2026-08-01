@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:son_siparis/game/components/game_card_component.dart';
 import 'package:son_siparis/game/components/main_menu_component.dart';
+import 'package:son_siparis/game/components/recipe_book_component.dart';
 import 'package:son_siparis/game/components/shift_results_component.dart';
+import 'package:son_siparis/game/components/tutorial_overlay_component.dart';
 import 'package:son_siparis/game/components/upgrade_selection_component.dart';
 import 'package:son_siparis/game/data/prototype_card_definitions.dart';
 import 'package:son_siparis/game/data/prototype_customer_definitions.dart';
@@ -19,6 +21,8 @@ import 'package:son_siparis/game/models/order_state.dart';
 import 'package:son_siparis/game/models/processing_definition.dart';
 import 'package:son_siparis/game/models/processing_job.dart';
 import 'package:son_siparis/game/models/shift_phase.dart';
+import 'package:son_siparis/game/models/shift_moment.dart';
+import 'package:son_siparis/game/models/tutorial_status.dart';
 import 'package:son_siparis/game/models/upgrade_id.dart';
 import 'package:son_siparis/game/son_siparis_game.dart';
 import 'package:son_siparis/game/state/equipment_processing_state.dart';
@@ -26,6 +30,9 @@ import 'package:son_siparis/game/state/game_flow_controller.dart';
 import 'package:son_siparis/game/state/kitchen_table_state.dart';
 import 'package:son_siparis/game/state/order_system.dart';
 import 'package:son_siparis/game/state/shift_state.dart';
+import 'package:son_siparis/game/state/recipe_discovery_state.dart';
+import 'package:son_siparis/game/state/shift_moment_tracker.dart';
+import 'package:son_siparis/game/state/tutorial_state.dart';
 import 'package:son_siparis/game/state/upgrade_state.dart';
 import 'package:son_siparis/game/systems/order_result_generator.dart';
 import 'package:son_siparis/game/systems/recipe_resolver.dart';
@@ -247,6 +254,8 @@ void main() {
       await tester.pumpWidget(SonSiparisApp(game: game));
       await tester.pump(const Duration(milliseconds: 100));
       await tester.tapAt(screenPosition(const Offset(640, 506)));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tapAt(screenPosition(const Offset(1035, 125)));
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(game.flow.screen, AppScreen.gameplay);
@@ -1330,4 +1339,290 @@ void main() {
       expect(kitchen.table.hasConsistentCardLocations(), isTrue);
     },
   );
+
+  test('tutorial state is first-shift-only and action-gated', () {
+    final tutorial = TutorialState();
+    expect(tutorial.startFirstShift(), isTrue);
+    expect(tutorial.startFirstShift(), isFalse);
+    expect(tutorial.status, TutorialStatus.active);
+    expect(tutorial.currentStep, TutorialStep.cookPatty);
+    expect(
+      tutorial.processingStarted(
+        inputCardId: 'bread_01',
+        equipmentCardId: 'pan_01',
+      ),
+      isFalse,
+    );
+    expect(
+      tutorial.processingStarted(
+        inputCardId: 'patty_01',
+        equipmentCardId: 'pan_01',
+      ),
+      isTrue,
+    );
+    expect(tutorial.currentStep, TutorialStep.buildClassicBurger);
+    expect(tutorial.recipeResolved(recipeId: 'deluxe_burger'), isFalse);
+    expect(tutorial.recipeResolved(recipeId: 'classic_burger'), isTrue);
+    expect(tutorial.currentStep, TutorialStep.serveClassicBurger);
+    expect(
+      tutorial.serviceCompleted(resultType: CardType.deluxeBurger),
+      isFalse,
+    );
+    expect(
+      tutorial.serviceCompleted(resultType: CardType.classicBurger),
+      isTrue,
+    );
+    expect(tutorial.status, TutorialStatus.completed);
+    expect(tutorial.patienceProtectionActive, isFalse);
+    expect(tutorial.startFirstShift(), isFalse);
+
+    final unfinishedTutorial = TutorialState()..startFirstShift();
+    unfinishedTutorial.finishFirstShiftSafely();
+    expect(unfinishedTutorial.status, TutorialStatus.skipped);
+    expect(unfinishedTutorial.startFirstShift(), isFalse);
+  });
+
+  test(
+    'tutorial skip and patience protection restore normal order behavior',
+    () {
+      final tutorial = TutorialState()..startFirstShift();
+      final orders = threeCustomers();
+      orders.startShift(tutorialFirstOrder: true);
+      expect(orders.tutorialPatienceProtectionActive, isTrue);
+      expect(
+        orders.slots.first.order!.requestedResultType,
+        CardType.classicBurger,
+      );
+      expect(orders.advancePatience(999), isNot(contains(orders.slots.first)));
+      expect(orders.slots.first.hasActiveOrder, isTrue);
+      expect(tutorial.skip(), isTrue);
+      orders.clearTutorialPatienceProtection();
+      expect(tutorial.status, TutorialStatus.skipped);
+      expect(orders.tutorialPatienceProtectionActive, isFalse);
+      expect(orders.advancePatience(999), contains(orders.slots.first));
+    },
+  );
+
+  test('recipe discovery begins known and persists newly created recipes', () {
+    final discovery = RecipeDiscoveryState();
+    expect(discovery.isDiscovered('classic_burger'), isTrue);
+    expect(discovery.isDiscovered('crispy_fries'), isTrue);
+    expect(discovery.isDiscovered('deluxe_burger'), isFalse);
+    expect(discovery.discover('deluxe_burger'), isTrue);
+    expect(discovery.discover('spicy_burger'), isTrue);
+    expect(discovery.isDiscovered('deluxe_burger'), isTrue);
+    expect(discovery.isDiscovered('spicy_burger'), isTrue);
+    expect(discovery.discover('deluxe_burger'), isFalse);
+  });
+
+  test('recipe book flow returns to its authoritative prior screen', () {
+    final flow = GameFlowController();
+    expect(flow.showRecipeBook(), isTrue);
+    expect(flow.screen, AppScreen.recipeBook);
+    expect(flow.closeRecipeBook(), isTrue);
+    expect(flow.screen, AppScreen.mainMenu);
+    expect(flow.startShift(), isTrue);
+    expect(flow.showRecipeBook(), isTrue);
+    expect(flow.isGameplayActive, isFalse);
+    expect(flow.closeRecipeBook(), isTrue);
+    expect(flow.screen, AppScreen.gameplay);
+    expect(flow.showRecipeBook(), isTrue);
+    expect(flow.showRecipeBook(), isFalse);
+  });
+
+  test('recipe detail rewards use the existing upgrade authority', () {
+    final upgrades = UpgradeState();
+    expect(upgrades.effectiveRewardFor(deluxeBurgerCardDefinition), 15);
+    upgrades.increase(prototypeUpgradeDefinitions[1]);
+    expect(upgrades.effectiveRewardFor(deluxeBurgerCardDefinition), 20);
+    expect(upgrades.effectiveRewardFor(crispyFriesCardDefinition), 8);
+  });
+
+  test('shift moment tracker selects the closest qualifying service first', () {
+    final tracker = ShiftMomentTracker()..startShift(day: 4);
+    tracker.recordSuccessfulService(
+      resultDefinition: classicBurgerCardDefinition,
+      remainingPatienceSeconds: 4.2,
+      combo: 5,
+      rewardCoins: 10,
+    );
+    tracker.recordSuccessfulService(
+      resultDefinition: deluxeBurgerCardDefinition,
+      remainingPatienceSeconds: 2.4,
+      combo: 2,
+      rewardCoins: 15,
+    );
+    tracker.recordSuccessfulService(
+      resultDefinition: spicyBurgerCardDefinition,
+      remainingPatienceSeconds: .21,
+      combo: 3,
+      rewardCoins: 15,
+    );
+    final moment = tracker.selectMoment();
+    expect(moment!.kind, ShiftMomentKind.lastSecond);
+    expect(moment.resultName, 'Ateş Burger');
+    expect(moment.remainingPatienceSeconds, closeTo(.21, .0001));
+    expect(moment.day, 4);
+  });
+
+  test(
+    'shift moment falls back to combo then reward without a last-second service',
+    () {
+      final comboTracker = ShiftMomentTracker()..startShift(day: 2);
+      comboTracker.recordSuccessfulService(
+        resultDefinition: classicBurgerCardDefinition,
+        remainingPatienceSeconds: 3.1,
+        combo: 3,
+        rewardCoins: 10,
+      );
+      expect(comboTracker.selectMoment()!.kind, ShiftMomentKind.combo);
+
+      final rewardTracker = ShiftMomentTracker()..startShift(day: 3);
+      rewardTracker.recordSuccessfulService(
+        resultDefinition: deluxeBurgerCardDefinition,
+        remainingPatienceSeconds: 3.5,
+        combo: 1,
+        rewardCoins: 15,
+      );
+      expect(rewardTracker.selectMoment()!.kind, ShiftMomentKind.reward);
+      expect((ShiftMomentTracker()..startShift(day: 1)).selectMoment(), isNull);
+    },
+  );
+
+  test('results can enter a shift moment and upgrades exactly once', () {
+    final flow = GameFlowController();
+    flow.startShift();
+    flow.showResults();
+    expect(flow.showShiftMoment(), isTrue);
+    expect(flow.showShiftMoment(), isFalse);
+    expect(flow.showUpgradeSelection(), isTrue);
+    expect(flow.showUpgradeSelection(), isFalse);
+  });
+
+  testWidgets('tutorial accepts real required drag gestures only', (
+    tester,
+  ) async {
+    final originalPhysicalSize = tester.view.physicalSize;
+    final originalDevicePixelRatio = tester.view.devicePixelRatio;
+    final originalPadding = tester.view.padding;
+    tester.view.physicalSize = const Size(1920, 1080);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(top: 60, bottom: 60);
+    addTearDown(() {
+      tester.view.physicalSize = originalPhysicalSize;
+      tester.view.devicePixelRatio = originalDevicePixelRatio;
+      tester.view.padding = originalPadding;
+    });
+    final game = SonSiparisGame();
+    const gameOffset = Offset(320 / 3, 60);
+    const gameScale = 4 / 3;
+    Offset screen(Offset world) => gameOffset + (world * gameScale);
+    Future<void> drag(Offset start, Offset end) async {
+      final gesture = await tester.startGesture(screen(start));
+      for (var step = 1; step <= 6; step++) {
+        await gesture.moveTo(screen(Offset.lerp(start, end, step / 6)!));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: 80));
+    }
+
+    Offset centerOf(String cardId) {
+      final position = game.tableState
+          .placementFor(cardId)
+          .currentValidPosition;
+      return position + const Offset(52, 39);
+    }
+
+    await tester.pumpWidget(SonSiparisApp(game: game));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tapAt(screen(const Offset(640, 506)));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(game.tutorialState.status, TutorialStatus.active);
+    expect(game.tutorialState.currentStep, TutorialStep.cookPatty);
+    expect(
+      game.world.children
+          .whereType<TutorialOverlayComponent>()
+          .single
+          .isMounted,
+      isTrue,
+    );
+
+    await drag(centerOf('bread_01'), const Offset(312, 280));
+    expect(game.tableState.isInHand('bread_01'), isTrue);
+    await drag(
+      centerOf('patty_01'),
+      game.tableState.placementFor('pan_01').currentValidPosition +
+          const Offset(45, 30),
+    );
+    expect(game.processingState.isProcessingInput('patty_01'), isTrue);
+    expect(game.tutorialState.currentStep, TutorialStep.buildClassicBurger);
+
+    game.update(GameLayout.processingDurationSeconds + .1);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      game.tableState.definitionFor('patty_01').type,
+      CardType.cookedPatty,
+    );
+    await drag(centerOf('bread_01'), const Offset(320, 280));
+    await drag(centerOf('patty_01'), centerOf('bread_01'));
+    await drag(centerOf('cheese_01'), centerOf('patty_01'));
+    expect(
+      game.tableState.definitionFor('classic_burger_01').type,
+      CardType.classicBurger,
+    );
+    expect(game.tutorialState.currentStep, TutorialStep.serveClassicBurger);
+    await drag(
+      centerOf('classic_burger_01'),
+      GameLayout.serviceCounterBounds.center - const Offset(52, 22),
+    );
+    expect(game.tutorialState.status, TutorialStatus.completed);
+    expect(game.orderSystem.tutorialPatienceProtectionActive, isFalse);
+  });
+
+  testWidgets('recipe book blocks and resumes gameplay without time jumps', (
+    tester,
+  ) async {
+    final originalPhysicalSize = tester.view.physicalSize;
+    final originalDevicePixelRatio = tester.view.devicePixelRatio;
+    final originalPadding = tester.view.padding;
+    tester.view.physicalSize = const Size(1920, 1080);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(top: 60, bottom: 60);
+    addTearDown(() {
+      tester.view.physicalSize = originalPhysicalSize;
+      tester.view.devicePixelRatio = originalDevicePixelRatio;
+      tester.view.padding = originalPadding;
+    });
+    final game = SonSiparisGame();
+    const gameOffset = Offset(320 / 3, 60);
+    const gameScale = 4 / 3;
+    Offset screen(Offset world) => gameOffset + (world * gameScale);
+    await tester.pumpWidget(SonSiparisApp(game: game));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tapAt(screen(const Offset(640, 506)));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tapAt(screen(const Offset(1035, 125)));
+    await tester.pump(const Duration(milliseconds: 100));
+    final elapsed = game.shiftState.elapsedShiftSeconds;
+    final patience = game.orderSystem.slots.first.patience.remainingSeconds;
+    await tester.tapAt(screen(const Offset(82, 118)));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(game.flow.screen, AppScreen.recipeBook);
+    expect(game.isGameplayInputAllowed, isFalse);
+    expect(
+      game.world.children
+          .whereType<RecipeBookComponent>()
+          .single
+          .containsLocalPoint(Vector2.zero()),
+      isTrue,
+    );
+    game.update(5);
+    expect(game.shiftState.elapsedShiftSeconds, elapsed);
+    expect(game.orderSystem.slots.first.patience.remainingSeconds, patience);
+    await tester.tapAt(screen(const Offset(1200, 45)));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(game.flow.screen, AppScreen.gameplay);
+    expect(game.isGameplayInputAllowed, isTrue);
+  });
 }

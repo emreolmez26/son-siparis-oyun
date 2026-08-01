@@ -1,1 +1,9 @@
-enum AppScreen { mainMenu, gameplay, shiftResults, upgradeSelection }
+enum AppScreen {
+  mainMenu,
+  settings,
+  gameplay,
+  recipeBook,
+  shiftResults,
+  shiftMoment,
+  upgradeSelection,
+}

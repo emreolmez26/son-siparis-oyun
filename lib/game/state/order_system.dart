@@ -30,6 +30,7 @@ class OrderSystem {
   final OrderResultGenerator _orderGenerator;
   final List<CustomerSlotState> slots;
   int _nextOrderSequence = 1;
+  String? _tutorialProtectedCustomerId;
 
   /// Compatibility accessors for the original one-customer prototype.
   CustomerState get customer => slots.first.customer;
@@ -45,13 +46,30 @@ class OrderSystem {
   List<CustomerSlotState> get activeSlots =>
       slots.where((slot) => slot.hasActiveOrder).toList(growable: false);
 
-  void startShift() {
+  void startShift({bool tutorialFirstOrder = false}) {
+    _tutorialProtectedCustomerId = null;
     for (final slot in slots) {
       _beginGeneratedOrder(
         slot,
         totalPatienceSeconds: slot.definition.basePatienceSeconds,
       );
     }
+    if (tutorialFirstOrder) {
+      final tutorialSlot = slots.first;
+      _beginOrderWithResult(
+        tutorialSlot,
+        requestedResultType: CardType.classicBurger,
+        totalPatienceSeconds: tutorialSlot.definition.basePatienceSeconds,
+      );
+      _tutorialProtectedCustomerId = tutorialSlot.definition.id;
+    }
+  }
+
+  bool get tutorialPatienceProtectionActive =>
+      _tutorialProtectedCustomerId != null;
+
+  void clearTutorialPatienceProtection() {
+    _tutorialProtectedCustomerId = null;
   }
 
   bool canServeDefinition(CardDefinition definition) =>
@@ -111,6 +129,7 @@ class OrderSystem {
       customerId: slot.definition.id,
       rewardCoins: rewardCoins,
       requestedResultType: definition.type,
+      remainingPatienceSeconds: slot.patience.remainingSeconds,
     );
   }
 
@@ -127,6 +146,7 @@ class OrderSystem {
   List<CustomerSlotState> advancePatience(double deltaSeconds) {
     final expired = <CustomerSlotState>[];
     for (final slot in activeSlots) {
+      if (slot.definition.id == _tutorialProtectedCustomerId) continue;
       if (slot.advancePatience(deltaSeconds)) expired.add(slot);
     }
     return expired;
@@ -171,6 +191,18 @@ class OrderSystem {
     final requestedResultType = _orderGenerator.nextResult(
       activeResults: activeTypes,
     );
+    _beginOrderWithResult(
+      slot,
+      requestedResultType: requestedResultType,
+      totalPatienceSeconds: totalPatienceSeconds,
+    );
+  }
+
+  void _beginOrderWithResult(
+    CustomerSlotState slot, {
+    required CardType requestedResultType,
+    required double totalPatienceSeconds,
+  }) {
     final order = OrderState(
       id: 'order_${_nextOrderSequence.toString().padLeft(2, '0')}',
       requestedResultType: requestedResultType,

@@ -38,8 +38,8 @@ class RecipeFeedbackComponent extends PositionComponent {
     final alpha = (progress * 255).round().clamp(0, 255).toInt();
     final bounds = Rect.fromCenter(
       center: Offset(anchor.dx + (GameLayout.cardWidth / 2), anchor.dy - 22),
-      width: 170,
-      height: 31,
+      width: 220,
+      height: 50,
     );
     final glow = RRect.fromRectAndRadius(
       bounds.inflate(6),
@@ -59,13 +59,25 @@ class RecipeFeedbackComponent extends PositionComponent {
     );
     ShellCanvas.label(
       canvas,
-      text: _text,
-      position: Vector2(bounds.center.dx, bounds.top + 7),
+      text: 'TARİF TAMAMLANDI!',
+      position: Vector2(bounds.center.dx, bounds.top + 6),
       style: TextStyle(
         color: Color.fromARGB(alpha, 255, 247, 213),
-        fontSize: 13,
+        fontSize: 12,
         fontWeight: FontWeight.w900,
         letterSpacing: .4,
+      ),
+      align: TextAlign.center,
+      maxWidth: bounds.width - 14,
+    );
+    ShellCanvas.label(
+      canvas,
+      text: _text,
+      position: Vector2(bounds.center.dx, bounds.top + 25),
+      style: TextStyle(
+        color: Color.fromARGB(alpha, 255, 210, 84),
+        fontSize: 12,
+        fontWeight: FontWeight.w900,
       ),
       align: TextAlign.center,
       maxWidth: bounds.width - 14,
