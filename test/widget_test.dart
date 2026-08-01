@@ -254,7 +254,7 @@ void main() {
 
       await tester.pumpWidget(SonSiparisApp(game: game));
       await tester.pump(const Duration(milliseconds: 100));
-      await tester.tapAt(screenPosition(const Offset(640, 506)));
+      await tester.tapAt(screenPosition(const Offset(640, 384)));
       await tester.pump(const Duration(milliseconds: 100));
       await tester.tapAt(screenPosition(const Offset(1035, 125)));
       await tester.pump(const Duration(milliseconds: 100));
@@ -1525,7 +1525,7 @@ void main() {
 
     await tester.pumpWidget(SonSiparisApp(game: game));
     await tester.pump(const Duration(milliseconds: 100));
-    await tester.tapAt(screen(const Offset(640, 506)));
+    await tester.tapAt(screen(const Offset(640, 384)));
     await tester.pump(const Duration(milliseconds: 100));
     expect(game.tutorialState.status, TutorialStatus.active);
     expect(game.tutorialState.currentStep, TutorialStep.cookPatty);
@@ -1597,7 +1597,7 @@ void main() {
     Offset screen(Offset world) => gameOffset + (world * gameScale);
     await tester.pumpWidget(SonSiparisApp(game: game));
     await tester.pump(const Duration(milliseconds: 100));
-    await tester.tapAt(screen(const Offset(640, 506)));
+    await tester.tapAt(screen(const Offset(640, 384)));
     await tester.pump(const Duration(milliseconds: 100));
     await tester.tapAt(screen(const Offset(1035, 125)));
     await tester.pump(const Duration(milliseconds: 100));

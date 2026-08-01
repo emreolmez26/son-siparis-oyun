@@ -1,6 +1,10 @@
+import 'dart:async';
+import 'dart:ui' as ui;
+
 import 'package:flame/components.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../game_layout.dart';
 import '../state/run_progression_state.dart';
@@ -38,21 +42,46 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
   final bool Function() canContinue;
   final RunProgressionState progression;
 
+  static const _backgroundAsset =
+      'assets/ui/backgrounds/main_menu_restaurant.png';
+
+  ui.Image? _backgroundImage;
+
   static final _startBounds = Rect.fromCenter(
-    center: Offset(640, 506),
-    width: 292,
-    height: 58,
+    center: const Offset(640, 384),
+    width: 356,
+    height: 64,
   );
-  static const _recipeBookBounds = Rect.fromLTWH(496, 626, 86, 48);
-  static const _marketBounds = Rect.fromLTWH(596, 626, 86, 48);
-  static const _settingsBounds = Rect.fromLTWH(696, 626, 86, 48);
-  static const _loadoutBounds = Rect.fromLTWH(796, 626, 108, 48);
-  static const _dailyBounds = Rect.fromLTWH(248, 548, 206, 66);
+  static const _recipeBookBounds = Rect.fromLTWH(368, 620, 124, 62);
+  static const _marketBounds = Rect.fromLTWH(508, 620, 124, 62);
+  static const _loadoutBounds = Rect.fromLTWH(648, 620, 124, 62);
+  static const _settingsBounds = Rect.fromLTWH(788, 620, 124, 62);
+  static final _dailyBounds = Rect.fromCenter(
+    center: const Offset(640, 502),
+    width: 264,
+    height: 44,
+  );
   static final _continueBounds = Rect.fromCenter(
-    center: const Offset(640, 574),
-    width: 292,
-    height: 40,
+    center: const Offset(640, 448),
+    width: 328,
+    height: 44,
   );
+
+  @override
+  void onLoad() {
+    super.onLoad();
+    unawaited(_loadBackground());
+  }
+
+  Future<void> _loadBackground() async {
+    final assetData = await rootBundle.load(_backgroundAsset);
+    final codec = await ui.instantiateImageCodec(
+      assetData.buffer.asUint8List(),
+    );
+    final frame = await codec.getNextFrame();
+    _backgroundImage = frame.image;
+    codec.dispose();
+  }
 
   @override
   bool containsLocalPoint(Vector2 point) =>
@@ -61,198 +90,241 @@ class MainMenuComponent extends PositionComponent with TapCallbacks {
   @override
   void render(Canvas canvas) {
     if (!isShowing()) return;
-    canvas.drawRect(size.toRect(), Paint()..color = GameLayout.backgroundColor);
-    ShellCanvas.label(
+    final screenBounds = size.toRect();
+    final backgroundImage = _backgroundImage;
+    if (backgroundImage != null) {
+      canvas.drawImageRect(
+        backgroundImage,
+        Rect.fromLTWH(
+          0,
+          0,
+          backgroundImage.width.toDouble(),
+          backgroundImage.height.toDouble(),
+        ),
+        screenBounds,
+        Paint(),
+      );
+    } else {
+      canvas.drawRect(
+        screenBounds,
+        Paint()..color = GameLayout.backgroundColor,
+      );
+    }
+    canvas.drawRect(
+      screenBounds,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0x26150B06), Color(0x99150B06)],
+          stops: [.15, 1],
+        ).createShader(screenBounds),
+    );
+    _drawTopInfo(canvas);
+    _labelWithShadow(
       canvas,
       text: 'SON SİPARİŞ',
-      position: Vector2(640, 96),
+      position: Vector2(640, 224),
       style: const TextStyle(
-        color: GameLayout.primaryTextColor,
-        fontSize: 34,
+        color: Color(0xFFFFCA39),
+        fontSize: 47,
         fontWeight: FontWeight.w900,
-        letterSpacing: .4,
+        letterSpacing: .2,
       ),
-      align: TextAlign.center,
     );
     ShellCanvas.label(
       canvas,
-      text: 'Kartlarını hazırla. Servis başlıyor.',
-      position: Vector2(640, 138),
-      style: const TextStyle(color: GameLayout.mutedTextColor, fontSize: 14),
-      align: TextAlign.center,
-    );
-    _drawTopPill(
-      canvas,
-      const Rect.fromLTWH(42, 28, 154, 38),
-      'SEVİYE 1 · GÜN ${progression.currentDay}',
-    );
-    _drawTopPill(
-      canvas,
-      const Rect.fromLTWH(1048, 28, 188, 38),
-      '● ${progression.walletCoins}  PARA',
-    );
-    ShellCanvas.label(
-      canvas,
-      text: '${ownedPackCount()}/3 PAKET · GÜNLÜK: ${todayBestLabel()}',
-      position: Vector2(640, 174),
-      style: const TextStyle(color: GameLayout.mutedTextColor, fontSize: 10),
-      align: TextAlign.center,
-    );
-    _drawDecorativeCards(canvas);
-    ShellCanvas.panel(
-      canvas,
-      _startBounds,
-      color: GameLayout.accentColor,
-      borderColor: const Color(0xFFFFD86F),
-      radius: 14,
-      borderWidth: 2,
-    );
-    ShellCanvas.panel(
-      canvas,
-      _dailyBounds,
-      color: const Color(0xFF493126),
-      borderColor: GameLayout.accentColor,
-      radius: 11,
-      borderWidth: 2,
-    );
-    ShellCanvas.label(
-      canvas,
-      text: 'GÜNÜN MÜCADELESİ',
-      position: Vector2(_dailyBounds.center.dx, _dailyBounds.top + 24),
+      text: 'MUTFAKTA BUGÜN KİM HIZLI?',
+      position: Vector2(640, 277),
       style: const TextStyle(
-        color: GameLayout.primaryTextColor,
-        fontSize: 10,
-        fontWeight: FontWeight.w900,
-      ),
-      align: TextAlign.center,
-    );
-    ShellCanvas.label(
-      canvas,
-      text: '▶  VARDİYAYA BAŞLA',
-      position: Vector2(_startBounds.center.dx, _startBounds.top + 18),
-      style: const TextStyle(
-        color: Color(0xFF39250C),
-        fontSize: 16,
-        fontWeight: FontWeight.w900,
-      ),
-      align: TextAlign.center,
-    );
-    ShellCanvas.panel(
-      canvas,
-      _continueBounds,
-      color: canContinue() ? const Color(0xFF55412F) : const Color(0xFF3B3029),
-      borderColor: GameLayout.panelStrokeColor,
-      radius: 10,
-    );
-    ShellCanvas.label(
-      canvas,
-      text: canContinue() ? 'DEVAM ET' : 'DEVAM ET  ·  Kayıt yok',
-      position: Vector2(640, _continueBounds.top + 12),
-      style: const TextStyle(
-        color: GameLayout.mutedTextColor,
-        fontSize: 13,
+        color: Color(0xFFF4DDAC),
+        fontSize: 12,
         fontWeight: FontWeight.w700,
       ),
       align: TextAlign.center,
     );
-    const labels = ['TARİF DEFTERİ', 'MARKET', 'AYARLAR', 'AKTİF MUTFAK'];
+    _drawButton(
+      canvas,
+      _startBounds,
+      text: '▶  VARDİYAYA BAŞLA',
+      fillColor: const Color(0xFFFFBE14),
+      borderColor: const Color(0xFFFFE08B),
+      textColor: const Color(0xFF39250C),
+      fontSize: 17,
+      shadow: true,
+    );
+    _drawButton(
+      canvas,
+      _continueBounds,
+      text: canContinue()
+          ? '↻  DEVAM ET — GÜN ${progression.currentDay}'
+          : '↻  DEVAM ET  ·  KAYIT YOK',
+      fillColor: canContinue()
+          ? const Color(0xFF3B2A22)
+          : const Color(0xFF332722),
+      borderColor: const Color(0xFF79624B),
+      textColor: canContinue()
+          ? const Color(0xFFFFE5B5)
+          : const Color(0xFFC3AA8D),
+      fontSize: 13,
+    );
+    _drawButton(
+      canvas,
+      _dailyBounds,
+      text: '✦  GÜNÜN MÜCADELESİ',
+      fillColor: const Color(0xFF30221C),
+      borderColor: const Color(0xFF9B7437),
+      textColor: const Color(0xFFF6D996),
+      fontSize: 12,
+    );
+    const labels = ['TARİF DEFTERİ', 'MARKET', 'AKTİF MUTFAK', 'AYARLAR'];
+    const icons = ['▤', '●', '◆', '⚙'];
+    const bounds = [
+      _recipeBookBounds,
+      _marketBounds,
+      _loadoutBounds,
+      _settingsBounds,
+    ];
     for (var index = 0; index < labels.length; index++) {
-      final bounds = index == 3
-          ? _loadoutBounds
-          : Rect.fromLTWH(496 + (index * 100), 626, 86, 48);
+      final navBounds = bounds[index];
+      final isActive = index == 2;
       ShellCanvas.panel(
         canvas,
-        bounds,
-        color: GameLayout.panelColor,
-        borderColor: GameLayout.panelStrokeColor,
-        radius: 9,
+        navBounds,
+        color: isActive ? const Color(0xFF554117) : const Color(0xDC271B16),
+        borderColor: isActive
+            ? const Color(0xFFFFC527)
+            : const Color(0xFF6A513A),
+        radius: 11,
+        borderWidth: isActive ? 2 : 1,
+      );
+      ShellCanvas.label(
+        canvas,
+        text: icons[index],
+        position: Vector2(navBounds.center.dx, navBounds.top + 9),
+        style: const TextStyle(
+          color: Color(0xFFFFD36A),
+          fontSize: 16,
+          fontWeight: FontWeight.w800,
+        ),
+        align: TextAlign.center,
       );
       ShellCanvas.label(
         canvas,
         text: labels[index],
-        position: Vector2(bounds.center.dx, bounds.top + 18),
-        style: const TextStyle(
-          color: GameLayout.mutedTextColor,
-          fontSize: 8,
-          fontWeight: FontWeight.w800,
+        position: Vector2(navBounds.center.dx, navBounds.top + 39),
+        style: TextStyle(
+          color: isActive ? const Color(0xFFFFE2A0) : const Color(0xFFD2BDA1),
+          fontSize: 9,
+          fontWeight: FontWeight.w900,
         ),
         align: TextAlign.center,
-        maxWidth: 76,
+        maxWidth: navBounds.width - 12,
       );
     }
   }
 
-  void _drawTopPill(Canvas canvas, Rect bounds, String text) {
+  void _drawTopInfo(Canvas canvas) {
+    const bounds = Rect.fromLTWH(826, 30, 412, 82);
     ShellCanvas.panel(
       canvas,
       bounds,
-      color: GameLayout.hudColor,
-      borderColor: GameLayout.panelStrokeColor,
-      radius: 9,
+      color: const Color(0xE6251914),
+      borderColor: const Color(0xFF6C513A),
+      radius: 14,
+      borderWidth: 1.5,
+    );
+    _topStat(
+      canvas,
+      const Offset(850, 49),
+      '●  ${progression.walletCoins} PARA',
+    );
+    _topStat(
+      canvas,
+      const Offset(1040, 49),
+      '▣  GÜN ${progression.currentDay}',
+    );
+    _topStat(canvas, const Offset(850, 79), '${ownedPackCount()} / 3 PAKET');
+    _topStat(canvas, const Offset(1040, 79), 'REKOR: ${todayBestLabel()}');
+  }
+
+  void _topStat(Canvas canvas, Offset position, String text) {
+    ShellCanvas.label(
+      canvas,
+      text: text,
+      position: Vector2(position.dx, position.dy),
+      style: const TextStyle(
+        color: Color(0xFFF6DFB3),
+        fontSize: 12,
+        fontWeight: FontWeight.w800,
+      ),
+      maxWidth: 172,
+    );
+  }
+
+  void _drawButton(
+    Canvas canvas,
+    Rect bounds, {
+    required String text,
+    required Color fillColor,
+    required Color borderColor,
+    required Color textColor,
+    required double fontSize,
+    bool shadow = false,
+  }) {
+    if (shadow) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          bounds.shift(const Offset(0, 7)),
+          const Radius.circular(15),
+        ),
+        Paint()
+          ..color = const Color(0x8F120905)
+          ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 7),
+      );
+    }
+    ShellCanvas.panel(
+      canvas,
+      bounds,
+      color: fillColor,
+      borderColor: borderColor,
+      radius: 13,
+      borderWidth: 1.5,
     );
     ShellCanvas.label(
       canvas,
       text: text,
-      position: Vector2(bounds.center.dx, bounds.top + 11),
-      style: const TextStyle(
-        color: GameLayout.primaryTextColor,
-        fontSize: 12,
-        fontWeight: FontWeight.w800,
+      position: Vector2(bounds.center.dx, bounds.center.dy - (fontSize * .56)),
+      style: TextStyle(
+        color: textColor,
+        fontSize: fontSize,
+        fontWeight: FontWeight.w900,
       ),
       align: TextAlign.center,
+      maxWidth: bounds.width - 16,
     );
   }
 
-  void _drawDecorativeCards(Canvas canvas) {
-    const colors = [Color(0xFFFFE9A9), Color(0xFF9EDB67), Color(0xFFE6B2E5)];
-    const labels = ['KÖFTE', 'PEYNİR', 'SERVİS'];
-    for (var index = 0; index < 3; index++) {
-      final bounds = Rect.fromLTWH(
-        420 + (index * 150),
-        220 + (index == 1 ? 16 : 0),
-        126,
-        168,
-      );
-      ShellCanvas.panel(
-        canvas,
-        bounds,
-        color: colors[index],
-        borderColor: const Color(0xFFFFD86F),
-        radius: 13,
-        borderWidth: 2,
-      );
-      canvas.drawCircle(
-        bounds.center.translate(0, -24),
-        28,
-        Paint()..color = const Color(0x55FFFFFF),
-      );
-      ShellCanvas.label(
-        canvas,
-        text: index == 0
-            ? '●'
-            : index == 1
-            ? '▲'
-            : '✦',
-        position: Vector2(bounds.center.dx, bounds.top + 39),
-        style: const TextStyle(
-          color: Color(0xFF4A3425),
-          fontSize: 32,
-          fontWeight: FontWeight.w900,
-        ),
-        align: TextAlign.center,
-      );
-      ShellCanvas.label(
-        canvas,
-        text: labels[index],
-        position: Vector2(bounds.center.dx, bounds.bottom - 28),
-        style: const TextStyle(
-          color: Color(0xFF4A3425),
-          fontSize: 11,
-          fontWeight: FontWeight.w900,
-        ),
-        align: TextAlign.center,
-      );
-    }
+  void _labelWithShadow(
+    Canvas canvas, {
+    required String text,
+    required Vector2 position,
+    required TextStyle style,
+  }) {
+    ShellCanvas.label(
+      canvas,
+      text: text,
+      position: position + Vector2(2, 3),
+      style: style.copyWith(color: const Color(0x990E0704)),
+      align: TextAlign.center,
+    );
+    ShellCanvas.label(
+      canvas,
+      text: text,
+      position: position,
+      style: style,
+      align: TextAlign.center,
+    );
   }
 
   @override

@@ -667,7 +667,7 @@ void main() {
       final game = SonSiparisGame();
       await tester.pumpWidget(SonSiparisApp(game: game));
       await tester.pump(const Duration(milliseconds: 100));
-      await tester.tapAt(const Offset(640, 506));
+      await tester.tapAt(const Offset(640, 384));
       await tester.pump(const Duration(milliseconds: 100));
       expect(game.gameMode, GameMode.career);
       expect(
@@ -703,7 +703,7 @@ void main() {
       );
       await tester.pumpWidget(SonSiparisApp(game: game));
       await tester.pump(const Duration(milliseconds: 100));
-      await tester.tapAt(const Offset(350, 580));
+      await tester.tapAt(const Offset(640, 502));
       await tester.pump(const Duration(milliseconds: 100));
       expect(game.gameMode, GameMode.dailyChallenge);
       expect(
